@@ -1,0 +1,75 @@
+# Simple production Dockerfile for Digital Ocean
+FROM node:24-alpine
+
+WORKDIR /app
+
+# Install system dependencies needed for native modules (canvas, etc.)
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    giflib-dev \
+    pixman-dev \
+    pangomm-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    cairo \
+    jpeg \
+    pango \
+    giflib \
+    pixman \
+    pangomm \
+    libjpeg-turbo \
+    freetype \
+    ffmpeg
+
+# Ensure Python is available for node-gyp
+RUN ln -sf python3 /usr/bin/python
+
+# Copy package files
+COPY package*.json ./
+COPY backend/package*.json ./backend/
+COPY frontend/package*.json ./frontend/
+COPY shared/package*.json ./shared/
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build shared package first
+RUN cd shared && npm run build
+
+# Build the application
+RUN npm run build
+
+# Fix the dist structure - move the nested files to the correct location
+RUN mkdir -p /app/backend/dist && \
+    if [ -d /app/backend/dist/backend/src ]; then \
+        cp -r /app/backend/dist/backend/src/* /app/backend/dist/ && \
+        rm -rf /app/backend/dist/backend; \
+    fi
+
+# Create charts directory and set permissions
+RUN mkdir -p /app/backend/files/charts
+
+# Copy and setup startup script
+COPY backend/start.sh ./backend/start.sh
+RUN chmod +x /app/backend/start.sh
+
+# Set working directory to backend
+WORKDIR /app/backend
+
+# Expose port
+EXPOSE 3001
+
+# Set environment
+ENV NODE_ENV=production
+ENV PORT=3001
+
+# Start the application using the startup script
+CMD ["./start.sh"]
