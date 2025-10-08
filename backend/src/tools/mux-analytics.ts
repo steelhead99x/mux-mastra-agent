@@ -7,6 +7,49 @@ const MUX_DATA_API_BASE = 'https://api.mux.com/data/v1';
 // Check if we should use MCP
 const USE_MUX_MCP = process.env.USE_MUX_MCP === 'true';
 
+// Mux API valid timeframe constraints
+const MUX_API_VALID_START = 1751241600; // Jun 30 2025
+const MUX_API_VALID_END = 1759964076;   // Oct 8 2025
+
+/**
+ * Generate valid timestamps within Mux API constraints
+ * If requested timeframe is outside valid range, adjust to valid range
+ */
+function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [number, number] {
+    // Default to last 24 hours within valid range
+    // Use the end of the valid range as our reference point since current time is outside valid range
+    const defaultEnd = MUX_API_VALID_END;
+    const defaultStart = Math.max(MUX_API_VALID_START, defaultEnd - (24 * 60 * 60));
+    
+    let start = requestedStart || defaultStart;
+    let end = requestedEnd || defaultEnd;
+    
+    // Ensure timestamps are within valid range
+    // If either timestamp is outside the valid range, use defaults instead
+    if (start < MUX_API_VALID_START || start > MUX_API_VALID_END || 
+        end < MUX_API_VALID_START || end > MUX_API_VALID_END) {
+        start = defaultStart;
+        end = defaultEnd;
+    } else {
+        start = Math.max(MUX_API_VALID_START, Math.min(MUX_API_VALID_END, start));
+        end = Math.max(MUX_API_VALID_START, Math.min(MUX_API_VALID_END, end));
+    }
+    
+    // Ensure start is before end and timeframe is positive
+    if (start >= end) {
+        start = end - (24 * 60 * 60); // 24 hours before end
+        start = Math.max(MUX_API_VALID_START, start);
+    }
+    
+    // Ensure minimum timeframe of 1 hour
+    const minTimeframe = 60 * 60; // 1 hour in seconds
+    if (end - start < minTimeframe) {
+        start = Math.max(MUX_API_VALID_START, end - minTimeframe);
+    }
+    
+    return [start, end];
+}
+
 // Lazy-load MCP client only if needed
 let muxDataMcpClient: any = null;
 async function getMcpClient() {
@@ -213,10 +256,8 @@ export const muxAnalyticsTool = createTool({
         const { timeframe, filters } = context as { timeframe?: number[]; filters?: string[] };
         
         try {
-            // Default to last 24 hours if no timeframe provided
-            const now = Date.now();
-            const oneDayAgo = now - (24 * 60 * 60 * 1000);
-            const [start, end] = timeframe || [Math.floor(oneDayAgo / 1000), Math.floor(now / 1000)];
+            // Use valid timeframe within Mux API constraints
+            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
             
             const params: any = {
                 timeframe: [start, end],
@@ -333,9 +374,8 @@ export const muxVideoViewsTool = createTool({
         const { timeframe, filters, limit } = context as { timeframe?: number[]; filters?: string[]; limit?: number };
         
         try {
-            const now = Date.now();
-            const oneDayAgo = now - (24 * 60 * 60 * 1000);
-            const [start, end] = timeframe || [Math.floor(oneDayAgo / 1000), Math.floor(now / 1000)];
+            // Use valid timeframe within Mux API constraints
+            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
             
             const params: any = {
                 timeframe: [start, end],
@@ -382,10 +422,8 @@ export const muxErrorsTool = createTool({
         const { timeframe, filters } = context as { timeframe?: number[]; filters?: string[] };
         
         try {
-            // Default to last 24 hours if no timeframe provided
-            const now = Date.now();
-            const oneDayAgo = now - (24 * 60 * 60 * 1000);
-            const [start, end] = timeframe || [Math.floor(oneDayAgo / 1000), Math.floor(now / 1000)];
+            // Use valid timeframe within Mux API constraints
+            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
             
             const params: any = {
                 timeframe: [start, end],
