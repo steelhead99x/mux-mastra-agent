@@ -6,8 +6,8 @@ export { default as mastra } from '../index.js'
 // Export with consistent naming: agent ID 'mux-analytics' matches the new agent
 export const agents = { 
   'mux-analytics': muxAnalyticsAgent,
-  // Legacy support: also export as 'weather' for backwards compatibility
-  weather: muxAnalyticsAgent
+  // Legacy support: also export as 'video professional streaming media at paramount plus' for backwards compatibility
+  'video professional streaming media at paramount plus': muxAnalyticsAgent
 }
 export const tools = { 
   muxAnalyticsTool,
@@ -19,7 +19,7 @@ export const tools = {
 // Minimal telemetry configuration for Mastra dev playground
 export const telemetry = {
   enabled: true,
-  serviceName: 'weather-agent',
+  serviceName: 'paramount-plus-video-professional-streaming-media-agent',
   sampling: {
     type: 'always_on' as const
   }

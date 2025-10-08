@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import WeatherChat from './components/WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from './components/VideoProfessionalStreamingMediaAtParamountPlusChat'
 import ThemeToggle from './components/ThemeToggle'
 import MCPDebugPanel from './components/MCPDebugPanel'
 import { MuxAnalyticsProvider } from './contexts/MuxAnalyticsContext'
@@ -36,7 +36,7 @@ export default function App() {
               <span className="text-xl" style={{ color: 'var(--warn)' }}>📊</span>
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight" style={{ color: 'var(--fg)' }}>Mux Analytics Agent</h1>
+              <h1 className="text-2xl font-semibold tracking-tight" style={{ color: 'var(--fg)' }}>Paramount Plus Video Professional Streaming Media</h1>
               <p className="text-sm" style={{ color: 'var(--fg-subtle)' }}>AI-powered video streaming analytics and optimization recommendations</p>
             </div>
           </div>
@@ -79,7 +79,7 @@ export default function App() {
                 </div>
               }>
                 <ErrorBoundary>
-                  <WeatherChat />
+                  <VideoProfessionalStreamingMediaAtParamountPlusChat />
                 </ErrorBoundary>
               </Suspense>
             </div>
@@ -88,7 +88,7 @@ export default function App() {
       </main>
 
       <footer className="relative z-10 max-w-5xl mx-auto px-6 pb-10" style={{ color: 'var(--fg-muted)' }}>
-        <p className="text-xs">Mux Analytics Agent • AI Video Streaming Engineer • Mastra Agents • Tailwind CSS • Vite + React</p>
+        <p className="text-xs">Paramount Plus Video Professional Streaming Media • AI Video Streaming Engineer • Mastra Agents • Tailwind CSS • Vite + React</p>
       </footer>
 
       {/* Debug Panel */}

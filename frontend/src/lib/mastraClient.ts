@@ -151,8 +151,8 @@ mastra.getDynamicToolsets = async () => {
   }
 }
 
-export function getWeatherAgentId() {
-  return ((import.meta as any)?.env?.VITE_WEATHER_AGENT_ID as string) || 'media vault'
+export function getVideoProfessionalStreamingMediaAtParamountPlusAgentId() {
+  return ((import.meta as any)?.env?.VITE_WEATHER_AGENT_ID as string) || 'video professional streaming media at paramount plus'
 }
 
 // Optional helper for UI/status displays

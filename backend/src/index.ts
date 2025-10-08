@@ -37,8 +37,8 @@ const mastra = new Mastra({
   agents: { 
     // Register with ID 'mux-analytics' for the new agent
     'mux-analytics': muxAnalyticsAgent,
-    // Legacy support: also register as 'weather' for backwards compatibility
-    weather: muxAnalyticsAgent
+    // Legacy support: also register as 'video professional streaming media at paramount plus' for backwards compatibility
+    'video professional streaming media at paramount plus': muxAnalyticsAgent
   },
 });
 
@@ -163,13 +163,13 @@ app.get('/debug/mcp', async (_req, res) => {
 app.get('/api/agents', (_req, res) => {
   res.json([
     { id: 'mux-analytics', name: 'Mux Analytics Agent' },
-    { id: 'weather', name: 'Mux Analytics Agent (legacy)' }
+    { id: 'video professional streaming media at paramount plus', name: 'Paramount Plus Video Professional Streaming Media (legacy)' }
   ]);
 });
 
 app.get('/api/agents/:agentId', (req, res) => {
   const agentId = req.params.agentId;
-  if (agentId === 'mux-analytics' || agentId === 'weather') {
+  if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
     res.json({ id: agentId, name: 'Mux Analytics Agent' });
   } else {
     res.status(404).json({ error: 'Agent not found' });
@@ -180,7 +180,7 @@ app.get('/api/agents/:agentId', (req, res) => {
 app.post('/api/agents/:agentId/invoke', async (req, res) => {
   try {
     const agentId = req.params.agentId;
-    if (agentId !== 'mux-analytics' && agentId !== 'weather') {
+    if (agentId !== 'mux-analytics' && agentId !== 'video professional streaming media at paramount plus') {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
@@ -214,7 +214,7 @@ app.post('/api/agents/:agentId/invoke', async (req, res) => {
 app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
   try {
     const agentId = req.params.agentId;
-    if (agentId !== 'mux-analytics' && agentId !== 'weather') {
+    if (agentId !== 'mux-analytics' && agentId !== 'video professional streaming media at paramount plus') {
       return res.status(404).json({ error: 'Agent not found' });
     }
 

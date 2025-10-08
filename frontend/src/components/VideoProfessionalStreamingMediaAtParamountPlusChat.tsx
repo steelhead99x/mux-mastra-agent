@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react'
-import { mastra, getWeatherAgentId, getDisplayHost } from '../lib/mastraClient'
+import { mastra, getVideoProfessionalStreamingMediaAtParamountPlusAgentId, getDisplayHost } from '../lib/mastraClient'
 import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
 import MuxSignedPlayer from './MuxSignedPlayer'
@@ -52,7 +52,7 @@ interface DebugInfo {
 /**
  * Analytics agent interface for type safety
  */
-interface WeatherAgent {
+interface VideoProfessionalStreamingMediaAtParamountPlusAgent {
   streamVNext: (message: string, options?: Record<string, unknown>) => Promise<{
     textStream?: AsyncIterable<string>
     fullStream?: AsyncIterable<StreamChunk>
@@ -533,7 +533,7 @@ export default function WeatherChat() {
     enableMetrics: true
   })
 
-  const [agent, setAgent] = useState<WeatherAgent | null>(null)
+  const [agent, setAgent] = useState<VideoProfessionalStreamingMediaAtParamountPlusAgent | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
 
   // Load agent asynchronously with retry logic
@@ -544,9 +544,9 @@ export default function WeatherChat() {
 
     const loadAgent = async () => {
       try {
-        const agentId = getWeatherAgentId()
+        const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId()
         const loadedAgent = await mastra.getAgent(agentId)
-        setAgent(loadedAgent as WeatherAgent)
+        setAgent(loadedAgent as VideoProfessionalStreamingMediaAtParamountPlusAgent)
         setAgentError(null)
         retryCount = 0 // Reset retry count on success
       } catch (error) {
@@ -575,7 +575,7 @@ export default function WeatherChat() {
           errorMessage.includes('timeout')
         )) {
           retryCount++
-          console.warn(`[WeatherChat] Agent load failed, retrying ${retryCount}/${maxRetries}:`, errorMessage)
+          console.warn(`[VideoProfessionalStreamingMediaAtParamountPlusChat] Agent load failed, retrying ${retryCount}/${maxRetries}:`, errorMessage)
           setTimeout(loadAgent, retryDelay * retryCount)
           return
         }

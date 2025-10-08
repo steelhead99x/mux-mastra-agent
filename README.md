@@ -108,7 +108,7 @@ DEEPGRAM_TTS_MODEL=aura-asteria-en
 
 # Frontend Configuration
 VITE_MASTRA_API_HOST=http://localhost:3001
-VITE_WEATHER_AGENT_ID=media vault  # Legacy support
+VITE_WEATHER_AGENT_ID=video professional streaming media at paramount plus  # Legacy support
 ```
 
 ### API Keys Required

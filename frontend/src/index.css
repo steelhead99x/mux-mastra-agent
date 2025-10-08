@@ -2,27 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Accessible theme tokens: high-contrast and color-blind-friendly */
+/* Paramount Plus inspired theme tokens */
 :root {
-  /* Base */
-  --bg: #f7f7f8; /* near white */
+  /* Base - Paramount Plus uses clean whites and soft grays */
+  --bg: #f8fafc; /* Paramount Plus background */
   --bg-soft: #ffffff;
   --bg-elev: #ffffffcc; /* translucent for glassy cards */
-  --fg: #1f2937; /* slate-800 */
-  --fg-muted: #4b5563; /* slate-600 */
-  --fg-subtle: #6b7280; /* slate-500 */
-  --border: #e5e7eb; /* gray-200 */
+  --fg: #1e293b; /* Paramount Plus dark text */
+  --fg-muted: #475569; /* Paramount Plus muted text */
+  --fg-subtle: #64748b; /* Paramount Plus subtle text */
+  --border: #e2e8f0; /* Paramount Plus border */
   --shadow: 0 10px 25px rgba(0,0,0,0.08);
 
-  /* Accents (blue/orange pair avoids R/G confusion) */
-  --accent: #007acc; /* accessible blue */
+  /* Paramount Plus brand colors - calming blue theme */
+  --accent: #0066cc; /* Paramount Plus primary blue */
   --accent-contrast: #ffffff;
-  --accent-muted: #e6f2fb;
+  --accent-muted: #e6f2ff; /* Light blue background */
 
-  /* Status colors chosen for CB-friendly distinguishability */
-  --ok: #2cb67d;      /* teal */
-  --warn: #f5a524;    /* orange */
-  --error: #d83f87;   /* magenta */
+  /* Paramount Plus secondary colors */
+  --ok: #059669;      /* Paramount Plus success green */
+  --warn: #d97706;    /* Paramount Plus warning orange */
+  --error: #dc2626;   /* Paramount Plus error red */
 
   /* Overlays */
   --overlay: rgba(0,0,0,0.08);
@@ -31,22 +31,24 @@
 
 .dark {
   color-scheme: dark;
-  --bg: #0f172a; /* slate-950 */
-  --bg-soft: #0b1221; /* deep */
-  --bg-elev: rgba(17, 24, 39, 0.6); /* glass card */
-  --fg: #e5e7eb; /* gray-200 */
-  --fg-muted: #cbd5e1; /* slate-300 */
-  --fg-subtle: #94a3b8; /* slate-400 */
+  /* Paramount Plus dark theme */
+  --bg: #0f172a; /* Paramount Plus dark background */
+  --bg-soft: #1e293b; /* Paramount Plus dark surface */
+  --bg-elev: rgba(30, 41, 59, 0.6); /* glass card */
+  --fg: #f1f5f9; /* Paramount Plus light text */
+  --fg-muted: #cbd5e1; /* Paramount Plus muted light text */
+  --fg-subtle: #94a3b8; /* Paramount Plus subtle light text */
   --border: rgba(148, 163, 184, 0.25);
   --shadow: 0 10px 25px rgba(0,0,0,0.35);
 
-  --accent: #4fc3f7; /* lighter blue for dark bg */
-  --accent-contrast: #0b1221;
-  --accent-muted: rgba(79,195,247,0.15);
+  /* Paramount Plus brand colors for dark theme */
+  --accent: #3b82f6; /* Paramount Plus blue for dark */
+  --accent-contrast: #0f172a;
+  --accent-muted: rgba(59, 130, 246, 0.15);
 
-  --ok: #2cb67d;
-  --warn: #f5a524;
-  --error: #ff6bb5;
+  --ok: #10b981; /* Paramount Plus success green */
+  --warn: #f59e0b; /* Paramount Plus warning orange */
+  --error: #ef4444; /* Paramount Plus error red */
 
   --overlay: rgba(255,255,255,0.06);
   --overlay-strong: rgba(255,255,255,0.12);
