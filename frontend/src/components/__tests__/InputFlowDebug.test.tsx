@@ -6,12 +6,12 @@ vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getAgent: vi.fn()
   },
-  getWeatherAgentId: () => 'weather',
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: () => 'video professional streaming media at paramount plus',
   getDisplayHost: () => 'localhost:3000'
 }))
 
 // Now import after mocking
-import WeatherChat from '../WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from '../VideoProfessionalStreamingMediaAtParamountPlusChat'
 
 // Mock functions for tracking
 const mockStreamVNext = vi.fn()
@@ -97,18 +97,18 @@ describe('Input Flow Debug Tests', () => {
 
   it('should pass string input correctly through the entire flow', async () => {
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     const testInput = '85001'
     
     // Enter ZIP code
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: testInput } })
     
     // Wait for button to be enabled
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
@@ -147,17 +147,17 @@ describe('Input Flow Debug Tests', () => {
 
   it('should handle complex input (text with spaces) correctly', async () => {
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     const testInput = 'more detailed weather info'
     
     // First send a ZIP to enable further conversation
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '90210' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
@@ -204,7 +204,7 @@ describe('Input Flow Debug Tests', () => {
 
   it('should handle message objects correctly if they exist', async () => {
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     // Mock a scenario where the input somehow becomes an object

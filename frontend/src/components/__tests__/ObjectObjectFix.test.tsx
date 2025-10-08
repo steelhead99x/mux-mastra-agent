@@ -6,11 +6,11 @@ vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getAgent: vi.fn()
   },
-  getWeatherAgentId: () => 'weather',
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: () => 'video professional streaming media at paramount plus',
   getDisplayHost: () => 'localhost:3000'
 }))
 
-import WeatherChat from '../WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from '../VideoProfessionalStreamingMediaAtParamountPlusChat'
 
 describe('[object Object] Fix Tests', () => {
   const mockStreamVNext = vi.fn()
@@ -36,10 +36,10 @@ describe('[object Object] Fix Tests', () => {
     })
 
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
@@ -64,10 +64,10 @@ describe('[object Object] Fix Tests', () => {
     mockStreamVNext.mockRejectedValue(errorObject)
 
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
@@ -98,10 +98,10 @@ describe('[object Object] Fix Tests', () => {
     mockStreamVNext.mockRejectedValue(error)
 
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
@@ -139,11 +139,11 @@ describe('[object Object] Fix Tests', () => {
       
       let renderResult: ReturnType<typeof render> | undefined
       await act(async () => {
-        renderResult = render(<WeatherChat />)
+        renderResult = render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
       })
       const { unmount } = renderResult!
       
-      const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+      const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
       fireEvent.change(input, { target: { value: '85001' } })
       
       await waitFor(() => {
@@ -181,10 +181,10 @@ describe('[object Object] Fix Tests', () => {
     mockStreamVNext.mockRejectedValue(complexError)
 
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {

@@ -9,7 +9,7 @@ vi.mock('../../lib/mastraClient', () => ({
       streamVNext: vi.fn(),
     },
   },
-  getWeatherAgentId: vi.fn().mockReturnValue('weatherAgent'),
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: vi.fn().mockReturnValue('video professional streaming media at paramount plus'),
 }));
 
 describe('useStreamVNext Hook', () => {

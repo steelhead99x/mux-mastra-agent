@@ -6,11 +6,11 @@ vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getAgent: vi.fn()
   },
-  getWeatherAgentId: () => 'weather',
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: () => 'video professional streaming media at paramount plus',
   getDisplayHost: () => 'localhost:3000'
 }))
 
-import WeatherChat from '../WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from '../VideoProfessionalStreamingMediaAtParamountPlusChat'
 
 describe('Debug Stream Error Test', () => {
   beforeEach(async () => {
@@ -53,17 +53,17 @@ describe('Debug Stream Error Test', () => {
     mockStreamVNext.mockRejectedValue(errorObject)
     
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     // Wait for agent to load
     await new Promise(resolve => setTimeout(resolve, 100))
     
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
@@ -141,22 +141,22 @@ describe('Debug Stream Error Test', () => {
       
       let renderResult: ReturnType<typeof render> | undefined
       await act(async () => {
-        renderResult = render(<WeatherChat />)
+        renderResult = render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
       })
       const { unmount } = renderResult!
       
       // Wait for agent to load
       await new Promise(resolve => setTimeout(resolve, 50))
       
-      const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+      const input = screen.getByPlaceholderText(/ask about video streaming analytics/i)
       fireEvent.change(input, { target: { value: '85001' } })
       
       await waitFor(() => {
-        const button = screen.getByRole('button', { name: /get forecast/i })
+        const button = screen.getByRole('button', { name: /send/i })
         expect(button).not.toBeDisabled()
       })
       
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       fireEvent.click(button)
       
       // Wait for error to appear

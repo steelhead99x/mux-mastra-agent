@@ -1,14 +1,14 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import MCPDebugPanel from '../MCPDebugPanel'
-import WeatherChat from '../WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from '../VideoProfessionalStreamingMediaAtParamountPlusChat'
 
 // Mock the mastra client
 vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getAgent: vi.fn()
   },
-  getWeatherAgentId: () => 'weather',
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: () => 'video professional streaming media at paramount plus',
   getDisplayHost: () => 'localhost:3000',
   getMastraBaseUrl: () => 'http://localhost:3000'
 }))
@@ -94,7 +94,7 @@ describe('MCP Input Flow Tests', () => {
 
   it('should trace input from WeatherChat to MCP streamVNext', async () => {
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     const testInput = '85001'

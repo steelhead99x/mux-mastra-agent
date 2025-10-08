@@ -30,10 +30,10 @@ describe('Mastra Client Configuration', () => {
     // The client should be configured with localhost for tests
   });
 
-  it('should get weather agent ID from environment', async () => {
-    const { getWeatherAgentId } = await import('../mastraClient');
+  it('should get video professional streaming media at paramount plus agent ID from environment', async () => {
+    const { getVideoProfessionalStreamingMediaAtParamountPlusAgentId } = await import('../mastraClient');
     
-    const agentId = getWeatherAgentId();
+    const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId();
     expect(agentId).toBe('weather'); // Default fallback when env var is not set
   });
 

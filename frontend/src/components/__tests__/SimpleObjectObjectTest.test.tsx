@@ -6,11 +6,11 @@ vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getAgent: vi.fn()
   },
-  getWeatherAgentId: () => 'weather',
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: () => 'video professional streaming media at paramount plus',
   getDisplayHost: () => 'localhost:3000'
 }))
 
-import WeatherChat from '../WeatherChat'
+import VideoProfessionalStreamingMediaAtParamountPlusChat from '../VideoProfessionalStreamingMediaAtParamountPlusChat'
 
 describe('Simple [object Object] Test', () => {
   beforeEach(async () => {
@@ -51,7 +51,7 @@ describe('Simple [object Object] Test', () => {
 
   it('should render without [object Object] errors', async () => {
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     // Wait a moment for the component to fully initialize
@@ -78,7 +78,7 @@ describe('Simple [object Object] Test', () => {
     vi.mocked(mastra.getAgent).mockRejectedValue(errorObject)
     
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     // Wait for agent loading to complete/fail
@@ -104,7 +104,7 @@ describe('Simple [object Object] Test', () => {
     vi.mocked(mastra.getAgent).mockRejectedValue(errorObject)
     
     await act(async () => {
-      render(<WeatherChat />)
+      render(<VideoProfessionalStreamingMediaAtParamountPlusChat />)
     })
     
     // Wait for agent loading to complete/fail
@@ -117,7 +117,7 @@ describe('Simple [object Object] Test', () => {
       
       // The error should contain meaningful text, not [object Object]
       expect(errorAlert.textContent).not.toContain('[object Object]')
-      expect(errorAlert.textContent).toContain('Failed to load weather agent')
+      expect(errorAlert.textContent).toContain('Failed to load analytics agent')
     }
   })
 })

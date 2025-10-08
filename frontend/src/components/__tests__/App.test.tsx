@@ -10,7 +10,7 @@ vi.mock('../../lib/mastraClient', () => ({
   mastra: {
     getDynamicToolsets: vi.fn().mockResolvedValue({}),
   },
-  getWeatherAgentId: vi.fn().mockReturnValue('weatherAgent'),
+  getVideoProfessionalStreamingMediaAtParamountPlusAgentId: vi.fn().mockReturnValue('video professional streaming media at paramount plus'),
   getDisplayHost: vi.fn().mockReturnValue('localhost:3000'),
   getMastraBaseUrl: vi.fn().mockReturnValue('http://localhost:3000'),
 }));
@@ -62,13 +62,13 @@ describe('App Component', () => {
     expect(container!.firstChild).toBeTruthy();
   });
 
-  it('should render weather chat component', async () => {
+  it('should render paramount plus video professional streaming media chat component', async () => {
     await act(async () => {
       render(<App />);
       await vi.advanceTimersByTimeAsync(0);
     });
     
-    // Look for elements that indicate the weather chat is rendered
+    // Look for elements that indicate the paramount plus video professional streaming media chat is rendered
     const appContainer = screen.getByRole('main', { hidden: true }) || 
                          document.querySelector('[class*="app"]') ||
                          document.body;
