@@ -112,7 +112,7 @@ describe('Input Flow Debug Tests', () => {
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     // Wait for streamVNext to be called
@@ -161,7 +161,7 @@ describe('Input Flow Debug Tests', () => {
       expect(button).not.toBeDisabled()
     })
     
-    let button = screen.getByRole('button', { name: /get forecast/i })
+    let button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     await waitFor(() => {
@@ -181,7 +181,7 @@ describe('Input Flow Debug Tests', () => {
     // Wait a bit and try - the hasAssistantResponded logic should allow this
     await new Promise(resolve => setTimeout(resolve, 100))
     
-    button = screen.getByRole('button', { name: /get forecast/i })
+    button = screen.getByRole('button', { name: /send/i })
     
     // If button is still disabled, skip this test as it's dependent on the mock response flow
     if (button.hasAttribute('disabled')) {

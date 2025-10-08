@@ -67,7 +67,7 @@ describe('Debug Stream Error Test', () => {
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     // Wait for error to appear

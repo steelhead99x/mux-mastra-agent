@@ -43,11 +43,11 @@ describe('[object Object] Fix Tests', () => {
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     await waitFor(() => {
@@ -71,11 +71,11 @@ describe('[object Object] Fix Tests', () => {
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     // Wait for error to appear
@@ -105,11 +105,11 @@ describe('[object Object] Fix Tests', () => {
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     await waitFor(() => {
@@ -147,11 +147,11 @@ describe('[object Object] Fix Tests', () => {
       fireEvent.change(input, { target: { value: '85001' } })
       
       await waitFor(() => {
-        const button = screen.getByRole('button', { name: /get forecast/i })
+        const button = screen.getByRole('button', { name: /send/i })
         expect(button).not.toBeDisabled()
       })
       
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       fireEvent.click(button)
       
       await waitFor(() => {
@@ -188,11 +188,11 @@ describe('[object Object] Fix Tests', () => {
     fireEvent.change(input, { target: { value: '85001' } })
     
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     await waitFor(() => {

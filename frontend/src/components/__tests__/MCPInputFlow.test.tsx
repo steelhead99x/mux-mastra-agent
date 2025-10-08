@@ -100,7 +100,7 @@ describe('MCP Input Flow Tests', () => {
     const testInput = '85001'
     
     // Step 1: User inputs ZIP code
-    const input = screen.getByPlaceholderText(/enter your zip code for detailed weather forecast/i)
+    const input = screen.getByPlaceholderText(/ask about video streaming analytics.../i)
     fireEvent.change(input, { target: { value: testInput } })
     
     mcpTrace.push({
@@ -113,11 +113,11 @@ describe('MCP Input Flow Tests', () => {
     
     // Step 2: Click send button
     await waitFor(() => {
-      const button = screen.getByRole('button', { name: /get forecast/i })
+      const button = screen.getByRole('button', { name: /send/i })
       expect(button).not.toBeDisabled()
     })
     
-    const button = screen.getByRole('button', { name: /get forecast/i })
+    const button = screen.getByRole('button', { name: /send/i })
     fireEvent.click(button)
     
     // Step 3: Wait for MCP call
