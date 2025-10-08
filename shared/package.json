@@ -1,5 +1,5 @@
 {
-  "name": "weather-agent-shared",
+  "name": "mux-analytics-agent-shared",
   "version": "1.0.0",
   "description": "Shared types and utilities for weather agent",
   "type": "module",
