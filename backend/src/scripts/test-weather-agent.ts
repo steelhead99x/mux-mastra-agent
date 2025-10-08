@@ -17,7 +17,7 @@
  *   MUX_TOKEN_ID + MUX_TOKEN_SECRET
  */
 import 'dotenv/config';
-import { weatherAgentTestWrapper as weatherAgent } from '../agents/weather-agent.js';
+import { mediaVaultAgentTestWrapper as mediaVaultAgent } from '../agents/media-vault-agent.js';
 import { promises as fs } from 'fs';
 import { resolve } from 'path';
 
@@ -94,7 +94,7 @@ function assertContainsAny(text: string, substrings: string[], message?: string)
 async function testBasicWeatherQuery(): Promise<void> {
     console.log('\n=== Test: Basic Weather Query with ZIP ===');
 
-    const result = await weatherAgent.text({
+    const result = await mediaVaultAgent.text({
         messages: [{ role: 'user', content: 'What\'s the weather like in 10001?' }],
     });
 
@@ -109,7 +109,7 @@ async function testBasicWeatherQuery(): Promise<void> {
 async function testNoLocationQuery(): Promise<void> {
     console.log('\n=== Test: No Location Provided ===');
 
-    const result = await weatherAgent.text({
+    const result = await mediaVaultAgent.text({
         messages: [{ role: 'user', content: 'What\'s the weather like?' }],
     });
 
@@ -125,7 +125,7 @@ async function testDirectTTSTool(): Promise<void> {
     console.log('\n=== Test: Direct TTS Tool Usage ===');
 
     try {
-        const result = await weatherAgent.text({
+        const result = await mediaVaultAgent.text({
             messages: [{
                 role: 'user',
                 content: 'Use the TTS tool to create an audio weather report for ZIP code 94102 with the text "Today will be sunny with a high of 72 degrees"'
@@ -195,7 +195,7 @@ async function testConversationalFlow(): Promise<void> {
     console.log('\n=== Test: Conversational Flow ===');
 
     // Start conversation
-    const step1 = await weatherAgent.text({
+    const step1 = await mediaVaultAgent.text({
         messages: [{ role: 'user', content: 'Hi, I need weather info' }],
     });
 
@@ -203,7 +203,7 @@ async function testConversationalFlow(): Promise<void> {
         console.log('\n' + EXTRA_INFO);
 
     // Provide ZIP
-    const step2 = await weatherAgent.text({
+    const step2 = await mediaVaultAgent.text({
         messages: [
             { role: 'user', content: 'Hi, I need weather info' },
             { role: 'assistant', content: step1.text },
@@ -218,7 +218,7 @@ async function testConversationalFlow(): Promise<void> {
         'Agent should provide weather for Chicago ZIP');
 
     // Request audio
-    const step3 = await weatherAgent.text({
+    const step3 = await mediaVaultAgent.text({
         messages: [
             { role: 'user', content: 'Hi, I need weather info' },
             { role: 'assistant', content: step1.text },

@@ -1,7 +1,7 @@
 import { MCPServer } from "@mastra/mcp";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { weatherAgent, weatherAgentTestWrapper } from "../agents/weather-agent.js";
+import { mediaVaultAgent, mediaVaultAgentTestWrapper } from "../agents/media-vault-agent.js";
 import { weatherTool } from "../tools/weather.js";
 
 /**
@@ -9,17 +9,17 @@ import { weatherTool } from "../tools/weather.js";
  * 
  * This server provides several tools for interacting with the weather agent:
  * 
- * 1. ask_weatherAgent - Smart tool that auto-selects the best streaming method
+ * 1. ask_mediaVaultAgent - Smart tool that auto-selects the best streaming method
  *    - Supports streamVNext (experimental), regular stream, and text fallback
  *    - Parameters: message, format (default|aisdk), streamingMethod (streamVNext|stream|auto)
  * 
- * 2. ask_weatherAgent_stream - Uses the regular stream method (stable)
+ * 2. ask_mediaVaultAgent_stream - Uses the regular stream method (stable)
  *    - Parameters: message
- *    - Always uses weatherAgent.stream()
+ *    - Always uses mediaVaultAgent.stream()
  * 
- * 3. ask_weatherAgent_text - Non-streaming fallback
+ * 3. ask_mediaVaultAgent_text - Non-streaming fallback
  *    - Parameters: message
- *    - Always uses weatherAgentTestWrapper.text()
+ *    - Always uses mediaVaultAgentTestWrapper.text()
  * 
  * 4. weatherTool - Direct weather data access
  *    - Parameters: zipCode
@@ -74,8 +74,8 @@ const circuitBreaker = new CircuitBreaker();
 
 // StreamVNext-compatible tool using Mastra Agent stream method
 const askWeatherAgentStreamVNext = createTool({
-  id: "ask_weatherAgent_streamVNext",
-  description: "Ask the weatherAgent using the stream method (compatible with streamVNext expectations).",
+  id: "ask_mediaVaultAgent_streamVNext",
+  description: "Ask the mediaVaultAgent using the stream method (compatible with streamVNext expectations).",
   inputSchema: z.object({
     message: z.string().describe("The user question or input for the agent (should contain a ZIP code)."),
     format: z
@@ -91,7 +91,7 @@ const askWeatherAgentStreamVNext = createTool({
 
     try {
       // Use Mastra Agent's streamVNext method for proper vstream format
-      const stream = await weatherAgent.streamVNext([{ role: "user", content: message }]);
+      const stream = await mediaVaultAgent.streamVNext([{ role: "user", content: message }]);
       const fullText = await stream.text;
       console.debug('[askWeatherAgentStreamVNext] streamVNext succeeded, text length:', fullText.length);
       
@@ -136,8 +136,8 @@ const askWeatherAgentStreamVNext = createTool({
 
 // Simplified agent tool that focuses on getting responses working
 const askWeatherAgent = createTool({
-  id: "ask_weatherAgent",
-  description: "Ask the weatherAgent a question. Returns weather information for ZIP codes.",
+  id: "ask_mediaVaultAgent",
+  description: "Ask the mediaVaultAgent a question. Returns weather information for ZIP codes.",
   inputSchema: z.object({
     message: z.string().describe("The user question or input for the agent (should contain a ZIP code)."),
     format: z
@@ -163,7 +163,7 @@ const askWeatherAgent = createTool({
         try {
           const result = await circuitBreaker.execute(async () => {
             // Add timeout protection to prevent overload
-            const streamPromise = weatherAgent.streamVNext([{ role: "user", content: message }]);
+            const streamPromise = mediaVaultAgent.streamVNext([{ role: "user", content: message }]);
             
             const timeoutPromise = new Promise<never>((_, reject) => {
               setTimeout(() => reject(new Error('StreamVNext timeout - system overloaded')), 25000);
@@ -218,7 +218,7 @@ const askWeatherAgent = createTool({
       // Fallback to text method for reliability (with circuit breaker protection)
       console.debug('[askWeatherAgent] Using text method for reliability...');
       const result = await circuitBreaker.execute(async () => {
-        return await weatherAgentTestWrapper.text({ 
+        return await mediaVaultAgentTestWrapper.text({ 
           messages: [{ role: "user", content: message }] 
         });
       });
@@ -270,8 +270,8 @@ const askWeatherAgent = createTool({
 
 // Dedicated tool for regular stream method
 const askWeatherAgentStream = createTool({
-  id: "ask_weatherAgent_stream",
-  description: "Ask the weatherAgent using the regular stream method (non-experimental).",
+  id: "ask_mediaVaultAgent_stream",
+  description: "Ask the mediaVaultAgent using the regular stream method (non-experimental).",
   inputSchema: z.object({
     message: z.string().describe("The user question or input for the agent."),
   }),
@@ -281,7 +281,7 @@ const askWeatherAgentStream = createTool({
     
     try {
       // Add timeout protection to prevent overload
-      const streamPromise = weatherAgent.stream([{ role: "user", content: message }]);
+      const streamPromise = mediaVaultAgent.stream([{ role: "user", content: message }]);
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => reject(new Error('Stream timeout - system overloaded')), 25000);
       });
@@ -311,8 +311,8 @@ const askWeatherAgentStream = createTool({
 
 // Non-streaming fallback to ensure an immediate response for clients that cannot consume streams
 const askWeatherAgentText = createTool({
-  id: "ask_weatherAgent_text",
-  description: "Ask the weatherAgent using a non-streaming text shim. Always returns a final text.",
+  id: "ask_mediaVaultAgent_text",
+  description: "Ask the mediaVaultAgent using a non-streaming text shim. Always returns a final text.",
   inputSchema: z.object({
     message: z.string().describe("The user question or input for the agent."),
   }),
@@ -321,7 +321,7 @@ const askWeatherAgentText = createTool({
     console.debug('[askWeatherAgentText] Received request:', { message });
     
     try {
-      const res = await (weatherAgentTestWrapper as any).text({ messages: [{ role: "user", content: message }] });
+      const res = await (mediaVaultAgentTestWrapper as any).text({ messages: [{ role: "user", content: message }] });
       return { streamed: false, text: String(res?.text ?? ""), method: 'text' };
     } catch (e) {
       console.error('[askWeatherAgentText] text failed:', e);
@@ -367,7 +367,7 @@ const health = createTool({
       
       try {
         // Test text method
-        const textResult = await weatherAgentTestWrapper.text({ 
+        const textResult = await mediaVaultAgentTestWrapper.text({ 
           messages: [{ role: "user", content: "96062" }] 
         });
         agentTests.textMethod = { 
@@ -383,7 +383,7 @@ const health = createTool({
       
       try {
         // Test stream method
-        const stream = await weatherAgent.stream([{ role: "user", content: "96062" }]);
+        const stream = await mediaVaultAgent.stream([{ role: "user", content: "96062" }]);
         const streamText = await stream.text;
         agentTests.streamMethod = { 
           ok: true, 
@@ -398,7 +398,7 @@ const health = createTool({
       
       try {
         // Test streamVNext method
-        const stream = await weatherAgent.streamVNext([{ role: "user", content: "96062" }]);
+        const stream = await mediaVaultAgent.streamVNext([{ role: "user", content: "96062" }]);
         const streamText = await stream.text;
         agentTests.streamVNextMethod = { 
           ok: true, 
@@ -434,7 +434,7 @@ const testAgent = createTool({
     console.debug('[testAgent] Testing agent with message:', message);
     
     try {
-      const result = await weatherAgentTestWrapper.text({ 
+      const result = await mediaVaultAgentTestWrapper.text({ 
         messages: [{ role: "user", content: message }] 
       });
       
@@ -491,7 +491,7 @@ const debugAgent = createTool({
     
     // Test agent text method
     try {
-      const result = await weatherAgentTestWrapper.text({ 
+      const result = await mediaVaultAgentTestWrapper.text({ 
         messages: [{ role: "user", content: message }] 
       });
       debugInfo.tests.textMethod = {
@@ -541,8 +541,8 @@ const debugAgent = createTool({
 
 // Compatibility tool that converts stream to legacy format
 const askWeatherAgentCompatible = createTool({
-  id: "ask_weatherAgent_compatible",
-  description: "Ask the weatherAgent using stream method but return in legacy data stream format for frontend compatibility.",
+  id: "ask_mediaVaultAgent_compatible",
+  description: "Ask the mediaVaultAgent using stream method but return in legacy data stream format for frontend compatibility.",
   inputSchema: z.object({
     message: z.string().describe("The user question or input for the agent (should contain a ZIP code)."),
   }),
@@ -552,7 +552,7 @@ const askWeatherAgentCompatible = createTool({
 
     try {
       // Use streamVNext internally but convert to legacy format for compatibility
-      const stream = await weatherAgent.streamVNext([{ role: "user", content: message }]);
+      const stream = await mediaVaultAgent.streamVNext([{ role: "user", content: message }]);
       
       // Collect all text chunks and vstream chunks
       let fullText = '';
@@ -610,11 +610,11 @@ export const weatherMcpServer = new MCPServer({
   // Do not use auto agent-to-tool conversion (non-streaming). We expose streaming tools instead.
   tools: {
     weatherTool,
-    ask_weatherAgent: askWeatherAgent,                    // Smart agent tool with auto-fallback
-    ask_weatherAgent_compatible: askWeatherAgentCompatible, // Legacy format compatibility
-    ask_weatherAgent_streamVNext: askWeatherAgentStreamVNext, // StreamVNext-compatible using Mastra stream
-    ask_weatherAgent_stream: askWeatherAgentStream,       // Regular stream method
-    ask_weatherAgent_text: askWeatherAgentText,           // Non-streaming fallback
+    ask_mediaVaultAgent: askWeatherAgent,                    // Smart agent tool with auto-fallback
+    ask_mediaVaultAgent_compatible: askWeatherAgentCompatible, // Legacy format compatibility
+    ask_mediaVaultAgent_streamVNext: askWeatherAgentStreamVNext, // StreamVNext-compatible using Mastra stream
+    ask_mediaVaultAgent_stream: askWeatherAgentStream,       // Regular stream method
+    ask_mediaVaultAgent_text: askWeatherAgentText,           // Non-streaming fallback
     test_agent: testAgent,                               // Simple test tool
     debug_agent: debugAgent,                             // Debug tool
     health,

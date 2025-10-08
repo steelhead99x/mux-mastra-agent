@@ -25,10 +25,10 @@ import { muxAnalyticsTool, muxErrorsTool, muxVideoViewsTool } from '../tools/mux
 
 // Import the TTS analytics report tool directly
 async function createTTSAnalyticsReportTool() {
-    const { createTool } = await import('@mastra/core/tools');
+    const { createTool } = await import('@mastra/core');
     const { z } = await import('zod');
-    const { promises as fs } = await import('fs');
-    const { resolve, dirname, join } = await import('path');
+    const fs = await import('fs');
+    const path = await import('path');
     
     // Generate TTS with Deepgram
     async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
@@ -99,10 +99,10 @@ Recommendation: Continue monitoring performance, but current streaming quality l
                 // Save audio file
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
                 const baseDir = process.env.TTS_TMP_DIR || '/tmp/tts';
-                const audioPath = join(baseDir, `analytics-report-${timestamp}.wav`);
+                const audioPath = path.join(baseDir, `analytics-report-${timestamp}.wav`);
                 
-                await fs.mkdir(dirname(resolve(audioPath)), { recursive: true });
-                await fs.writeFile(resolve(audioPath), audioBuffer);
+                await fs.promises.mkdir(path.dirname(path.resolve(audioPath)), { recursive: true });
+                await fs.promises.writeFile(path.resolve(audioPath), audioBuffer);
                 console.log(`[tts-analytics-report] Audio saved: ${audioPath} (${audioBuffer.length} bytes)`);
                 
                 // For now, just return the local file path

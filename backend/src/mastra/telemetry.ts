@@ -1,6 +1,6 @@
 export const telemetry = {
   enabled: true,
-  serviceName: 'weather-agent',
+  serviceName: 'media-vault-agent',
   sampling: {
     type: 'always_on' as const
   }

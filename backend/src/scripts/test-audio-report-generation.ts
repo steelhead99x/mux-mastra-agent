@@ -26,7 +26,7 @@ async function testAudioReportGeneration() {
         console.log('=== Test: Generate Audio Report with Errors by Platform + View Counts ===');
         
         // Import the mux analytics agent
-        const { muxAnalyticsAgent } = await import('../agents/mux-analytics.ts');
+        const { muxAnalyticsAgent } = await import('../agents/mux-analytics-agent.js');
         
         console.log('✅ Mux analytics agent loaded successfully');
         

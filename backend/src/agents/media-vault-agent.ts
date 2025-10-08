@@ -439,9 +439,22 @@ async function performAssetPolling(assetId: string, {
             console.debug(`[performAssetPolling] Asset ${assetId} status: ${status} (${Math.round(elapsedMs / 1000)}s elapsed, next check in ${currentPollInterval / 1000}s)`);
             
             if (status === 'ready' && 'playback_ids' in lastPayload) {
-                const playbackId = Array.isArray(lastPayload.playback_ids) && lastPayload.playback_ids.length > 0
+                let playbackId = Array.isArray(lastPayload.playback_ids) && lastPayload.playback_ids.length > 0
                     ? (lastPayload.playback_ids[0]?.id as string | undefined)
                     : undefined;
+                
+                // If no playback ID exists, create one
+                if (!playbackId) {
+                    try {
+                        console.debug(`[performAssetPolling] No playback ID found for asset ${assetId}, creating one...`);
+                        playbackId = await createPlaybackId(assetId);
+                        console.debug(`[performAssetPolling] Created playback ID: ${playbackId}`);
+                    } catch (error) {
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.warn(`[performAssetPolling] Failed to create playback ID for asset ${assetId}: ${errorMsg}`);
+                    }
+                }
+                
                 console.log(`[performAssetPolling] Asset ${assetId} is ready! Playback ID: ${playbackId}`);
                 return {
                     status,
@@ -691,6 +704,50 @@ const zipMemoryTool = createTool({
         };
     },
 });
+
+/**
+ * Create a playback ID for a Mux asset
+ * @param assetId The asset ID to create a playback ID for
+ * @returns The created playback ID
+ */
+async function createPlaybackId(assetId: string): Promise<string> {
+    const muxTokenId = process.env.MUX_TOKEN_ID;
+    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
+    
+    if (!muxTokenId || !muxTokenSecret) {
+        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
+    }
+    
+    const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
+    
+    console.debug(`[createPlaybackId] Creating playback ID for asset ${assetId}...`);
+    
+    const createPlaybackIdResponse = await fetch(`https://api.mux.com/video/v1/assets/${assetId}/playback-ids`, {
+        method: 'POST',
+        headers: {
+            'Authorization': authHeader,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            policy: 'public' // or 'signed' if you want signed playback
+        })
+    } as any);
+    
+    if (!createPlaybackIdResponse.ok) {
+        const errorText = await createPlaybackIdResponse.text().catch(() => '');
+        throw new Error(`Failed to create playback ID: ${createPlaybackIdResponse.status} - ${errorText}`);
+    }
+    
+    const playbackIdData = await createPlaybackIdResponse.json() as any;
+    const playbackId = playbackIdData.data?.id;
+    
+    if (!playbackId) {
+        throw new Error('Failed to create playback ID - no ID returned');
+    }
+    
+    console.debug(`[createPlaybackId] Created playback ID: ${playbackId}`);
+    return playbackId;
+}
 
 /**
  * Create a Mux upload using either MCP or REST API based on USE_MUX_MCP env variable
@@ -1065,6 +1122,19 @@ const ttsWeatherTool = createTool({
                     assetId = uploadId; // Fallback to upload ID
                 }
 
+                // Create playback ID for the asset if we have an asset ID
+                if (assetId && assetId !== uploadId) {
+                    try {
+                        console.debug('[tts-weather-upload] Creating playback ID for asset...');
+                        playbackId = await createPlaybackId(assetId);
+                        console.debug(`[tts-weather-upload] Created playback ID: ${playbackId}`);
+                    } catch (error) {
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        console.warn(`[tts-weather-upload] Failed to create playback ID: ${errorMsg}`);
+                        // Continue without playback ID - it will be created during asset polling
+                    }
+                }
+
                 // Build player URL immediately from assetId (always provide)
                 playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
                 console.debug(`[tts-weather-upload] Player URL: ${playerUrl}`);
@@ -1185,7 +1255,7 @@ const ttsWeatherTool = createTool({
 
 function buildSystemPrompt() {
     return [
-        'You are a helpful, natural-sounding, agriculture-focused weather assistant.',
+        'You are a comprehensive media vault assistant that provides weather information, generates audio reports, and manages video content.',
         'IMPORTANT MEMORY RULES:',
         '- Always remember ZIP codes that users provide in previous messages',
         '- If a user provides a ZIP code, store it in memory for future reference using the zipMemoryTool',
@@ -1194,7 +1264,7 @@ function buildSystemPrompt() {
         '- After storing a ZIP code, immediately use it for weather requests without asking again',
         '- Keep responses clear and conversational. When generating TTS, speak ZIP code digits clearly.',
         'Offer practical farm and field guidance tied to conditions (planting, irrigation, spraying, frost, livestock).',
-        'AUDIO/VISUAL WEATHER RULES:',
+        'MEDIA VAULT CAPABILITIES:',
         '- When a user requests audio, TTS, voice, speak, stream, or visual weather forecasts, ALWAYS automatically call the ttsWeatherTool',
         '- NEVER ask "Would you like me to generate an audio forecast?" - just generate it automatically',
         '- Always say "please wait one minute while i generate your visual weather forecast" before calling ttsWeatherTool',
@@ -1208,9 +1278,9 @@ function buildSystemPrompt() {
     ].join(' ');
 }
 
-export const weatherAgent: any = new Agent({
-    name: 'weatherAgent',
-    description: 'Provides agriculture-focused weather info for ZIP codes and generates a clear, natural TTS video uploaded to Mux with a streaming URL.',
+export const mediaVaultAgent: any = new Agent({
+    name: 'mediaVaultAgent',
+    description: 'A comprehensive media vault agent that provides weather information, generates audio reports, and manages video content with Mux streaming capabilities.',
     instructions: buildSystemPrompt(),
     model: anthropic(process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest'),
     tools: {
@@ -1484,5 +1554,8 @@ async function textShim(args: { messages: Array<{ role: string; content: string 
     }
 }
 
-export const weatherAgentTestWrapper: any = weatherAgent as any;
-(weatherAgentTestWrapper as any).text = textShim;
+export const mediaVaultAgentTestWrapper: any = mediaVaultAgent as any;
+(mediaVaultAgentTestWrapper as any).text = textShim;
+
+// Export the createPlaybackId function for testing
+export { createPlaybackId };

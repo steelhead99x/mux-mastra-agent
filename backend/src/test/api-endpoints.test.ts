@@ -4,8 +4,8 @@ import express from 'express';
 import cors from 'cors';
 
 // Mock the weather agent to avoid needing real API keys in tests
-vi.mock('../agents/weather-agent.js', () => ({
-  weatherAgent: {
+vi.mock('../agents/media-vault-agent.js', () => ({
+  mediaVaultAgent: {
     streamVNext: vi.fn().mockResolvedValue({
       textStream: (async function* () {
         yield 'Test weather response chunk 1 ';
@@ -22,7 +22,7 @@ const createTestApp = async () => {
   app.use(express.json());
   
   // Import after mocking
-  const { weatherAgent } = await import('../agents/weather-agent.js');
+  const { mediaVaultAgent } = await import('../agents/media-vault-agent.js');
   
   app.get('/health', (_req, res) => {
     res.json({ ok: true, service: 'weather-mcp-server', timestamp: new Date().toISOString() });
@@ -45,7 +45,7 @@ const createTestApp = async () => {
       }
 
       // Call the mocked agent
-      const stream = await weatherAgent.streamVNext(messages);
+      const stream = await mediaVaultAgent.streamVNext(messages);
 
       if (stream.textStream) {
         res.writeHead(200, {

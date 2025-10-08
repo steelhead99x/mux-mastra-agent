@@ -43,7 +43,7 @@ mux-analytics-agent/
 1. **Clone and setup:**
    ```bash
    git clone <repository-url>
-   cd weather-agent-monorepo
+   cd media-vault-agent-monorepo
    ./scripts/setup.sh
    ```
 
@@ -169,10 +169,10 @@ npm run test:watch     # Run tests in watch mode
 ### Docker Deployment
 ```bash
 # Build Docker image
-docker build -t weather-agent .
+docker build -t media-vault-agent .
 
 # Run container
-docker run -p 3001:3001 --env-file .env weather-agent
+docker run -p 3001:3001 --env-file .env media-vault-agent
 ```
 
 ### Manual Deployment

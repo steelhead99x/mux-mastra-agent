@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import request from 'supertest'
 import express from 'express'
 import cors from 'cors'
-import { weatherAgent } from '../agents/weather-agent.js'
+import { mediaVaultAgent } from '../agents/media-vault-agent.js'
 
 // Create test app with the actual weather agent
 function createIntegrationTestApp() {
@@ -34,7 +34,7 @@ function createIntegrationTestApp() {
       console.log(`[TEST] Processing messages:`, messages)
 
       // Call the actual weather agent
-      const stream = await weatherAgent.streamVNext(messages)
+      const stream = await mediaVaultAgent.streamVNext(messages)
 
       if (stream.textStream) {
         res.writeHead(200, {

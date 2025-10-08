@@ -5,8 +5,8 @@ import cors from 'cors';
 import { weatherTool } from '../tools/weather.js';
 
 // Mock external dependencies
-vi.mock('../agents/weather-agent.js', () => ({
-  weatherAgent: {
+vi.mock('../agents/media-vault-agent.js', () => ({
+  mediaVaultAgent: {
     streamVNext: vi.fn().mockImplementation(async (messages) => {
       // Simulate successful weather agent response
       return {
@@ -33,7 +33,7 @@ describe('Integration Tests', () => {
     app.use(cors());
     app.use(express.json());
     
-    const { weatherAgent } = await import('../agents/weather-agent.js');
+    const { mediaVaultAgent } = await import('../agents/media-vault-agent.js');
     
     app.get('/health', (_req, res) => {
       res.json({ ok: true, service: 'weather-mcp-server', timestamp: new Date().toISOString() });
@@ -50,7 +50,7 @@ describe('Integration Tests', () => {
           return res.status(404).json({ error: 'Agent not found' });
         }
 
-        const stream = await weatherAgent.streamVNext(messages);
+        const stream = await mediaVaultAgent.streamVNext(messages);
 
         if (stream.textStream) {
           res.writeHead(200, {

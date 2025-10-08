@@ -4,7 +4,7 @@ export default {
   outDir: './dist',
   entry: './src/index.ts',
   agents: {
-    weatherAgent: './src/agents/weather-agent.ts'
+    mediaVaultAgent: './src/agents/media-vault-agent.ts'
   },
   tools: {
     weatherTool: './src/tools/weather.ts'
