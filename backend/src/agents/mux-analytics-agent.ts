@@ -403,7 +403,6 @@ This report covers the monitoring status for the last 24 hours, confirming that 
             
             // Upload to Mux
             let playerUrl: string | undefined;
-            let signedPlayerUrl: string | undefined;
             let assetId: string | undefined;
             
             try {
@@ -423,17 +422,9 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 if (uploadId) {
                     assetId = await waitForAssetCreation(uploadId);
                     if (assetId) {
-                        // Create regular player URL
+                        // Create player URL using asset ID - the player will handle signed tokens internally
                         playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                        
-                        // Create signed playback URL using playback ID
-                        try {
-                            const playbackId = await createSignedPlaybackToken(assetId);
-                            signedPlayerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?playbackId=${playbackId}`;
-                            console.debug('[tts-analytics-report] Signed playback URL created with playback ID');
-                        } catch (tokenError) {
-                            console.warn('[tts-analytics-report] Failed to create signed token:', tokenError);
-                        }
+                        console.debug('[tts-analytics-report] Player URL created with asset ID');
                     }
                 }
             } catch (uploadError) {
@@ -450,13 +441,10 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 }
             }
             
-            // Create response message with playback URLs
+            // Create response message with playback URL
             let responseMessage = 'Analytics audio report generated successfully';
             if (playerUrl) {
                 responseMessage += `\n\n🎧 Audio Report: ${playerUrl}`;
-            }
-            if (signedPlayerUrl) {
-                responseMessage += `\n\n🔐 Signed Audio Report: ${signedPlayerUrl}`;
             }
 
             return {
@@ -465,7 +453,6 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 wordCount: summaryText.split(/\s+/).length,
                 localAudioFile: audioPath,
                 playerUrl,
-                signedPlayerUrl,
                 assetId,
                 analysis: analyticsResult.success ? analyticsResult.analysis : null,
                 message: responseMessage
@@ -560,10 +547,6 @@ async function textShim(args: { messages: Array<{ role: string; content: string 
                 
                 if (result.playerUrl) {
                     lines.push(`\n🎧 Audio Report: ${result.playerUrl}`);
-                }
-                
-                if (result.signedPlayerUrl) {
-                    lines.push(`\n🔐 Signed Audio Report: ${result.signedPlayerUrl}`);
                 }
                 
                 if (result.analysis) {
