@@ -31,7 +31,7 @@ async function testMuxErrorSummarization() {
         name: "Mux Error Analysis Agent",
         instructions: "You are a Mux Video Analytics Agent specializing in error analysis. Analyze error data from Mux streaming accounts and provide detailed insights about error patterns, causes, and recommendations for improvement.",
         model: anthropic(process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'),
-        tools: [muxAnalyticsTool, muxErrorsTool],
+        tools: { muxAnalyticsTool, muxErrorsTool },
     });
 
     try {
