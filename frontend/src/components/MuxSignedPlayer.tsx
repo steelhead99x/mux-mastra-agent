@@ -14,7 +14,7 @@ export default function MuxSignedPlayer({
   assetId: assetIdProp,
   assetID,
   assetid,
-  playbackId: playbackIdProp,
+  playbackId: directPlaybackId,
   playbackID,
   playbackid,
   type = 'video',
@@ -58,7 +58,7 @@ export default function MuxSignedPlayer({
   }, [])
 
   const assetId = assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
-  const playbackId = playbackIdProp || playbackID || playbackid || playbackIdFromQuery
+  const finalPlaybackId = directPlaybackId || playbackID || playbackid || playbackIdFromQuery
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -123,11 +123,11 @@ export default function MuxSignedPlayer({
     async function run() {
       try {
         // If we have a playbackId directly, use it without fetching tokens
-        if (playbackId) {
-          console.log('[MuxSignedPlayer] Using direct playbackId:', playbackId)
+        if (finalPlaybackId) {
+          console.log('[MuxSignedPlayer] Using direct playbackId:', finalPlaybackId)
           setState({ 
             status: 'ready', 
-            playbackId: playbackId, 
+            playbackId: finalPlaybackId, 
             token: '', // No token needed for public playback
             thumbnailToken: undefined 
           })
@@ -217,9 +217,9 @@ export default function MuxSignedPlayer({
     return () => {
       cancelled = true
     }
-  }, [keyServerUrl, body, playbackId])
+  }, [keyServerUrl, body, finalPlaybackId])
 
-  if (!assetId && !playbackId) {
+  if (!assetId && !finalPlaybackId) {
     return (
       <div className={className}>
         <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId or playbackId configured.</div>
