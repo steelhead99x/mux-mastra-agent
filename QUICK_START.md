@@ -82,7 +82,7 @@ Your `.env` file already has these configured:
 ### Frontend Variables (Already Set)
 Your `frontend/.env` file has:
 - ✅ `VITE_MASTRA_API_HOST` - Backend URL (http://localhost:3001)
-- ✅ `VITE_WEATHER_AGENT_ID` - Agent ID (weather)
+- ✅ `VITE_WEATHER_AGENT_ID` - Agent ID (media vault)
 - ✅ `VITE_MUX_KEY_SERVER_URL` - Mux keyserver
 
 ## 📂 File Structure
@@ -119,7 +119,7 @@ weather-mcp-kd/
 ### Agent ID
 - **Always use**: `weather` (lowercase, no 'Agent' suffix)
 - Backend: Registered as `weather`
-- Frontend: `VITE_WEATHER_AGENT_ID=weather`
+- Frontend: `VITE_WEATHER_AGENT_ID=media vault`
 - API: Returns `{"id":"weather","name":"weather"}`
 
 ### Environment Loading
@@ -146,7 +146,7 @@ Frontend loads from:
 
 ### Issue: "Agent not found"
 **Solution**: 
-1. Verify `VITE_WEATHER_AGENT_ID=weather` in `frontend/.env`
+1. Verify `VITE_WEATHER_AGENT_ID=media vault` in `frontend/.env`
 2. Check backend logs for agent registration
 3. Test: `curl http://localhost:3001/api/agents`
 

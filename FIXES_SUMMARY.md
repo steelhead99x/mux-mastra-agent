@@ -48,7 +48,7 @@ This document summarizes all the fixes applied to resolve environment configurat
 ### ✅ 3. Fixed Frontend env.example
 **File**: `frontend/env.example`
 
-- Fixed `VITE_WEATHER_AGENT_ID` to use 'weather' (not 'weatherAgent')
+- Fixed `VITE_WEATHER_AGENT_ID` to use 'media vault' (not 'weatherAgent')
 - Updated Mux configuration with working defaults
 - Added clear comments about VITE_ prefix requirement
 - Included production configuration examples
@@ -103,7 +103,7 @@ if (existsSync(rootEnvPath)) {
 ### ✅ 6. Updated Frontend .env
 **File**: `frontend/.env`
 
-- Set `VITE_WEATHER_AGENT_ID=weather` (matching backend)
+- Set `VITE_WEATHER_AGENT_ID=media vault` (matching backend)
 - Configured proper `VITE_MASTRA_API_HOST` for localhost
 - Added working Mux configuration
 
@@ -183,7 +183,7 @@ npm run dev
    cp .env .env.backup
    cp env.example .env
    
-   # Check VITE_WEATHER_AGENT_ID is set to 'weather'
+   # Check VITE_WEATHER_AGENT_ID is set to 'media vault'
    # Update VITE_MASTRA_API_HOST if needed
    ```
 
@@ -196,7 +196,7 @@ npm run dev
 ### For Production Deployments
 
 1. **Update environment variables** in your hosting provider:
-   - Set `VITE_WEATHER_AGENT_ID=weather` (if previously 'weatherAgent')
+   - Set `VITE_WEATHER_AGENT_ID=media vault` (if previously 'weatherAgent')
    - Verify all required variables are set
 
 2. **Redeploy** your application
@@ -211,7 +211,7 @@ npm run dev
 
 - [ ] Root `.env` file exists with all required variables
 - [ ] `frontend/.env` file exists with VITE_ prefixed variables
-- [ ] `VITE_WEATHER_AGENT_ID` is set to 'weather' (not 'weatherAgent')
+- [ ] `VITE_WEATHER_AGENT_ID` is set to 'media vault' (not 'weatherAgent')
 - [ ] Backend starts without environment errors
 - [ ] Frontend connects to backend successfully
 - [ ] Agent endpoint returns `{"id":"weather","name":"weather"}`
@@ -239,7 +239,7 @@ npm run dev
 ### Agent ID Change
 - **Before**: Agent was registered as 'weatherAgent' in some places
 - **After**: Consistently uses 'weather' everywhere
-- **Migration**: Update `VITE_WEATHER_AGENT_ID=weather` in frontend `.env`
+- **Migration**: Update `VITE_WEATHER_AGENT_ID=media vault` in frontend `.env`
 
 ## Benefits
 

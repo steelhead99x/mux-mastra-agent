@@ -285,7 +285,7 @@ const MCPDebugPanel = memo(function MCPDebugPanel() {
             ...prev.serverInfo,
             host: new URL(baseUrl).hostname,
             baseUrl,
-            agentId: import.meta.env.VITE_WEATHER_AGENT_ID || 'weather',
+            agentId: import.meta.env.VITE_WEATHER_AGENT_ID || 'media vault',
             lastPing: new Date(),
             responseTime,
             version: data.version || 'unknown'

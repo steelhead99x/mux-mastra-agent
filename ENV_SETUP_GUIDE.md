@@ -60,7 +60,7 @@ For local development, the defaults should work:
 
 ```bash
 VITE_MASTRA_API_HOST=http://localhost:3001
-VITE_WEATHER_AGENT_ID=weather
+VITE_WEATHER_AGENT_ID=media vault
 ```
 
 For production deployment, update:
@@ -103,7 +103,7 @@ You should see:
 The agent ID **must match** between frontend and backend:
 
 - **Backend**: Agent is named `'weather'` (lowercase)
-- **Frontend**: Must set `VITE_WEATHER_AGENT_ID=weather` (lowercase)
+- **Frontend**: Must set `VITE_WEATHER_AGENT_ID=media vault` (lowercase)
 
 ### Backend Environment Loading
 
@@ -152,7 +152,7 @@ All frontend environment variables **must** be prefixed with `VITE_`:
 
 **Cause**: Agent ID mismatch between frontend and backend
 
-**Solution**: Verify that `VITE_WEATHER_AGENT_ID=weather` in `frontend/.env`
+**Solution**: Verify that `VITE_WEATHER_AGENT_ID=media vault` in `frontend/.env`
 
 ### Issue: "Missing MUX_TOKEN_ID or MUX_TOKEN_SECRET"
 
@@ -191,7 +191,7 @@ All frontend environment variables **must** be prefixed with `VITE_`:
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `VITE_MASTRA_API_HOST` | Yes | Backend API URL | `http://localhost:3001` |
-| `VITE_WEATHER_AGENT_ID` | Yes | Agent ID | `weather` |
+| `VITE_WEATHER_AGENT_ID` | Yes | Agent ID | `media vault` |
 | `VITE_MUX_ASSET_ID` | No | Default Mux asset | Default asset ID |
 | `VITE_MUX_KEY_SERVER_URL` | Yes | Mux key server URL | StreamingPortfolio keyserver |
 
@@ -221,7 +221,7 @@ DEEPGRAM_API_KEY=your-production-key
 
 # Frontend build-time variables
 VITE_MASTRA_API_HOST=https://your-backend-domain.com
-VITE_WEATHER_AGENT_ID=weather
+VITE_WEATHER_AGENT_ID=media vault
 ```
 
 ### Docker Deployment

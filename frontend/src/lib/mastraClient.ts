@@ -152,7 +152,7 @@ mastra.getDynamicToolsets = async () => {
 }
 
 export function getWeatherAgentId() {
-  return ((import.meta as any)?.env?.VITE_WEATHER_AGENT_ID as string) || 'weather'
+  return ((import.meta as any)?.env?.VITE_WEATHER_AGENT_ID as string) || 'media vault'
 }
 
 // Optional helper for UI/status displays
