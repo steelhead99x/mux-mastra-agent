@@ -14,19 +14,25 @@ export default function MuxSignedPlayer({
   assetId: assetIdProp,
   assetID,
   assetid,
+  playbackId: playbackIdProp,
+  playbackID,
+  playbackid,
   type = 'video',
   className,
 }: {
   assetId?: string
   assetID?: string
   assetid?: string
+  playbackId?: string
+  playbackID?: string
+  playbackid?: string
   type?: 'video'
   className?: string
 }) {
   const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || '00ixOU3x6YI02DXIzeQ00wEzTwAHyUojsiewp7fC4FNeNw'
   const { updateAnalytics } = useMuxAnalytics()
 
-  // Allow URL query param override (?assetid=..., ?assetId=..., or ?assetID=...)
+  // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?playbackId=..., etc.)
   const assetIdFromQuery = useMemo(() => {
     if (typeof window === 'undefined') return undefined
     try {
@@ -39,7 +45,20 @@ export default function MuxSignedPlayer({
     }
   }, [])
 
+  const playbackIdFromQuery = useMemo(() => {
+    if (typeof window === 'undefined') return undefined
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const raw = sp.get('playbackId') || sp.get('playbackID') || sp.get('playbackid')
+      const val = raw?.trim()
+      return val ? val : undefined
+    } catch {
+      return undefined
+    }
+  }, [])
+
   const assetId = assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
+  const playbackId = playbackIdProp || playbackID || playbackid || playbackIdFromQuery
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -103,6 +122,18 @@ export default function MuxSignedPlayer({
     let cancelled = false
     async function run() {
       try {
+        // If we have a playbackId directly, use it without fetching tokens
+        if (playbackId) {
+          console.log('[MuxSignedPlayer] Using direct playbackId:', playbackId)
+          setState({ 
+            status: 'ready', 
+            playbackId: playbackId, 
+            token: '', // No token needed for public playback
+            thumbnailToken: undefined 
+          })
+          return
+        }
+
         console.log('[MuxSignedPlayer] Starting token fetch for assetId:', assetId)
         console.log('[MuxSignedPlayer] Keyserver URL:', keyServerUrl)
         console.log('[MuxSignedPlayer] Request body:', JSON.stringify(body, null, 2))
@@ -186,12 +217,12 @@ export default function MuxSignedPlayer({
     return () => {
       cancelled = true
     }
-  }, [keyServerUrl, body])
+  }, [keyServerUrl, body, playbackId])
 
-  if (!assetId) {
+  if (!assetId && !playbackId) {
     return (
       <div className={className}>
-        <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId configured.</div>
+        <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId or playbackId configured.</div>
       </div>
     )
   }

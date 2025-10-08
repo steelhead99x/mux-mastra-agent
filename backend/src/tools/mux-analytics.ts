@@ -4,8 +4,37 @@ import { z } from "zod";
 // Mux Data API base URL
 const MUX_DATA_API_BASE = 'https://api.mux.com/data/v1';
 
-// Check if we should use MCP
-const USE_MUX_MCP = process.env.USE_MUX_MCP === 'true';
+// Utility function to sanitize API keys from error messages
+function sanitizeApiKey(message: string): string {
+    return message.replace(/[A-Za-z0-9]{20,}/g, '[REDACTED_API_KEY]');
+}
+
+// Utility function to validate API key format without exposing the key
+function validateApiKey(key: string | undefined, keyName: string): boolean {
+    if (!key) {
+        console.error(`[security] ${keyName} is not set`);
+        return false;
+    }
+    
+    // Check if key looks like a placeholder
+    if (key.includes('your_') || key.includes('_here') || key === '') {
+        console.error(`[security] ${keyName} appears to be a placeholder value`);
+        return false;
+    }
+    
+    // Check minimum length (most API keys are at least 20 characters)
+    if (key.length < 20) {
+        console.error(`[security] ${keyName} appears to be too short`);
+        return false;
+    }
+    
+    return true;
+}
+
+// Check if we should use MCP (evaluate at runtime, not module load time)
+function shouldUseMCP(): boolean {
+    return process.env.USE_MUX_MCP === 'true';
+}
 
 // Mux API valid timeframe constraints
 const MUX_API_VALID_START = 1751241600; // Jun 30 2025
@@ -53,7 +82,7 @@ function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [num
 // Lazy-load MCP client only if needed
 let muxDataMcpClient: any = null;
 async function getMcpClient() {
-    if (!muxDataMcpClient && USE_MUX_MCP) {
+    if (!muxDataMcpClient && shouldUseMCP()) {
         const { muxDataMcpClient: client } = await import('../mcp/mux-data-client.js');
         muxDataMcpClient = client;
         await muxDataMcpClient.connect();
@@ -67,37 +96,33 @@ async function getMcpClient() {
  */
 async function muxDataRequest(endpoint: string, params?: Record<string, any>): Promise<any> {
     // Try MCP first if enabled
-    if (USE_MUX_MCP) {
+    if (shouldUseMCP()) {
         try {
             const mcpClient = await getMcpClient();
             if (mcpClient) {
                 const tools = await mcpClient.getTools();
                 
-                // Map endpoint to MCP tool
-                const endpointMap: Record<string, string> = {
-                    '/errors': 'list_data_errors',
-                    '/video-views': 'list_data_video_views',
-                    '/metrics/overall': 'get_overall_values_data_metrics',
-                };
-                
-                // Check for breakdown endpoints
-                if (endpoint.includes('/breakdown')) {
-                    const mcpTool = tools['list_breakdown_values_data_metrics'];
-                    if (mcpTool) {
-                        return await mcpTool.execute({ context: params || {} });
-                    }
-                }
-                
-                const toolName = endpointMap[endpoint];
-                if (toolName && tools[toolName]) {
-                    const result = await tools[toolName].execute({ context: params || {} });
-                    return result;
-                }
-                
-                // Fallback to invoke_api_endpoint if available
+                // Use invoke_api_endpoint directly with proper endpoint names
                 if (tools['invoke_api_endpoint']) {
-                    // Extract endpoint name from path
-                    const endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
+                    // Map our internal endpoints to MCP endpoint names
+                    let endpointName: string;
+                    
+                    if (endpoint === '/errors') {
+                        endpointName = 'errors';
+                    } else if (endpoint === '/video-views') {
+                        endpointName = 'video-views';
+                    } else if (endpoint === '/metrics/overall') {
+                        endpointName = 'metrics_overall';
+                    } else if (endpoint.includes('/breakdown')) {
+                        // Convert breakdown endpoints to MCP format
+                        endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
+                    } else {
+                        // Generic conversion
+                        endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
+                    }
+                    
+                    console.log(`[mux-analytics] Calling MCP endpoint: ${endpointName}`);
+                    
                     return await tools['invoke_api_endpoint'].execute({
                         context: {
                             endpoint_name: endpointName,
@@ -115,8 +140,8 @@ async function muxDataRequest(endpoint: string, params?: Record<string, any>): P
     const muxTokenId = process.env.MUX_TOKEN_ID;
     const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
     
-    if (!muxTokenId || !muxTokenSecret) {
-        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
+    if (!validateApiKey(muxTokenId, 'MUX_TOKEN_ID') || !validateApiKey(muxTokenSecret, 'MUX_TOKEN_SECRET')) {
+        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required and must be valid');
     }
     
     const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
@@ -153,7 +178,8 @@ async function muxDataRequest(endpoint: string, params?: Record<string, any>): P
     
     if (!response.ok) {
         const errorText = await response.text().catch(() => '');
-        throw new Error(`Mux Data API error ${response.status}: ${errorText}`);
+        const sanitizedError = sanitizeApiKey(errorText);
+        throw new Error(`Mux Data API error ${response.status}: ${sanitizedError}`);
     }
     
     return await response.json();
@@ -247,17 +273,41 @@ function analyzeMetrics(data: any): {
  */
 export const muxAnalyticsTool = createTool({
     id: "mux-analytics",
-    description: "Fetch Mux video streaming analytics and metrics for a specific time range. Returns overall performance data including views, errors, rebuffering, and startup times.",
+    description: "Fetch Mux video streaming analytics and metrics for a specific time range. Returns overall performance data including views, errors, rebuffering, and startup times. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
-        timeframe: z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for the time range to analyze").optional(),
+        timeframe: z.union([
+            z.array(z.number()).length(2),
+            z.array(z.string()).length(2).transform(arr => arr.map(s => {
+                const num = parseInt(s, 10);
+                return isNaN(num) ? undefined : num;
+            }))
+        ]).describe("Unix timestamp array [start, end] for the time range to analyze").optional(),
         filters: z.array(z.string()).describe("Optional filters like 'operating_system:iOS' or 'country:US'").optional(),
     }),
     execute: async ({ context }) => {
-        const { timeframe, filters } = context as { timeframe?: number[]; filters?: string[] };
+        let { timeframe, filters } = context as { timeframe?: any; filters?: string[] };
         
         try {
+            // Parse timeframe if it's a string or contains invalid values
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
+                const parseTimestamp = (val: any): number | undefined => {
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'string') {
+                        const parsed = parseInt(val, 10);
+                        return isNaN(parsed) ? undefined : parsed;
+                    }
+                    return undefined;
+                };
+                
+                startTime = parseTimestamp(timeframe[0]);
+                endTime = parseTimestamp(timeframe[1]);
+            }
+            
             // Use valid timeframe within Mux API constraints
-            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
+            const [start, end] = getValidTimeframe(startTime, endTime);
             
             const params: any = {
                 timeframe: [start, end],
@@ -283,10 +333,12 @@ export const muxAnalyticsTool = createTool({
                 analysis,
             };
         } catch (error) {
-            console.error('[mux-analytics] Error:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[mux-analytics] Error:', sanitizedError);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: sanitizedError,
                 message: 'Failed to fetch Mux analytics data'
             };
         }
@@ -310,8 +362,8 @@ export const muxAssetsListTool = createTool({
             const muxTokenId = process.env.MUX_TOKEN_ID;
             const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
             
-            if (!muxTokenId || !muxTokenSecret) {
-                throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
+            if (!validateApiKey(muxTokenId, 'MUX_TOKEN_ID') || !validateApiKey(muxTokenSecret, 'MUX_TOKEN_SECRET')) {
+                throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required and must be valid');
             }
             
             const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
@@ -330,7 +382,8 @@ export const muxAssetsListTool = createTool({
             
             if (!response.ok) {
                 const errorText = await response.text().catch(() => '');
-                throw new Error(`Mux API error ${response.status}: ${errorText}`);
+                const sanitizedError = sanitizeApiKey(errorText);
+                throw new Error(`Mux API error ${response.status}: ${sanitizedError}`);
             }
             
             const data = await response.json() as any;
@@ -349,10 +402,12 @@ export const muxAssetsListTool = createTool({
                 })),
             };
         } catch (error) {
-            console.error('[mux-assets-list] Error:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[mux-assets-list] Error:', sanitizedError);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: sanitizedError,
                 message: 'Failed to fetch Mux assets'
             };
         }
@@ -364,18 +419,42 @@ export const muxAssetsListTool = createTool({
  */
 export const muxVideoViewsTool = createTool({
     id: "mux-video-views",
-    description: "Fetch detailed video view data from Mux. Returns individual viewing sessions with metadata.",
+    description: "Fetch detailed video view data from Mux. Returns individual viewing sessions with metadata. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
-        timeframe: z.array(z.number()).length(2).describe("Unix timestamp array [start, end]").optional(),
+        timeframe: z.union([
+            z.array(z.number()).length(2),
+            z.array(z.string()).length(2).transform(arr => arr.map(s => {
+                const num = parseInt(s, 10);
+                return isNaN(num) ? undefined : num;
+            }))
+        ]).describe("Unix timestamp array [start, end]").optional(),
         filters: z.array(z.string()).describe("Optional filters").optional(),
         limit: z.number().describe("Max number of views to return (default 25)").optional(),
     }),
     execute: async ({ context }) => {
-        const { timeframe, filters, limit } = context as { timeframe?: number[]; filters?: string[]; limit?: number };
+        let { timeframe, filters, limit } = context as { timeframe?: any; filters?: string[]; limit?: number };
         
         try {
+            // Parse timeframe if it's a string or contains invalid values
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
+                const parseTimestamp = (val: any): number | undefined => {
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'string') {
+                        const parsed = parseInt(val, 10);
+                        return isNaN(parsed) ? undefined : parsed;
+                    }
+                    return undefined;
+                };
+                
+                startTime = parseTimestamp(timeframe[0]);
+                endTime = parseTimestamp(timeframe[1]);
+            }
+            
             // Use valid timeframe within Mux API constraints
-            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
+            const [start, end] = getValidTimeframe(startTime, endTime);
             
             const params: any = {
                 timeframe: [start, end],
@@ -398,10 +477,12 @@ export const muxVideoViewsTool = createTool({
                 totalViews: viewsData.data?.length || 0,
             };
         } catch (error) {
-            console.error('[mux-video-views] Error:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[mux-video-views] Error:', sanitizedError);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: sanitizedError,
                 message: 'Failed to fetch video views data'
             };
         }
@@ -413,17 +494,41 @@ export const muxVideoViewsTool = createTool({
  */
 export const muxErrorsTool = createTool({
     id: "mux-errors",
-    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions. Returns error counts, percentages, and detailed error information.",
+    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions. Returns error counts, percentages, and detailed error information. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
-        timeframe: z.array(z.number()).length(2).describe("Unix timestamp array [start, end]").optional(),
+        timeframe: z.union([
+            z.array(z.number()).length(2),
+            z.array(z.string()).length(2).transform(arr => arr.map(s => {
+                const num = parseInt(s, 10);
+                return isNaN(num) ? undefined : num;
+            }))
+        ]).describe("Unix timestamp array [start, end]").optional(),
         filters: z.array(z.string()).describe("Optional filters like 'operating_system:iOS'").optional(),
     }),
     execute: async ({ context }) => {
-        const { timeframe, filters } = context as { timeframe?: number[]; filters?: string[] };
+        let { timeframe, filters } = context as { timeframe?: any; filters?: string[] };
         
         try {
+            // Parse timeframe if it's a string or contains invalid values
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
+                const parseTimestamp = (val: any): number | undefined => {
+                    if (typeof val === 'number') return val;
+                    if (typeof val === 'string') {
+                        const parsed = parseInt(val, 10);
+                        return isNaN(parsed) ? undefined : parsed;
+                    }
+                    return undefined;
+                };
+                
+                startTime = parseTimestamp(timeframe[0]);
+                endTime = parseTimestamp(timeframe[1]);
+            }
+            
             // Use valid timeframe within Mux API constraints
-            const [start, end] = getValidTimeframe(timeframe?.[0], timeframe?.[1]);
+            const [start, end] = getValidTimeframe(startTime, endTime);
             
             const params: any = {
                 timeframe: [start, end],
@@ -456,10 +561,12 @@ export const muxErrorsTool = createTool({
                 platformBreakdown: osBreakdown.data || [],
             };
         } catch (error) {
-            console.error('[mux-errors] Error:', error);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[mux-errors] Error:', sanitizedError);
             return {
                 success: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: sanitizedError,
                 message: 'Failed to fetch error data'
             };
         }

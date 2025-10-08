@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mux Player Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .chat-message {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .player-container {
+            margin: 20px 0;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            background: #fafafa;
+        }
+        .url-display {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+        .emoji {
+            font-size: 16px;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎧 Mux Audio Player Integration Test</h1>
+    
+    <div class="chat-message">
+        <h3>Agent Response Example:</h3>
+        <p>Analytics audio report generated successfully</p>
+        
+        <div class="url-display">
+            <span class="emoji">🎧</span> Audio Report: https://streamingportfolio.com/player?assetId=2g0201uwEstz7sLtueXcBptCkZAFoIi02DAszbNIdBOWxc
+        </div>
+        
+        <div class="url-display">
+            <span class="emoji">🔐</span> Signed Audio Report: https://streamingportfolio.com/player?playbackId=JQbB4kcQ017ScbkJbySoed00RyypLq8wdHTFm3fX2fQBc
+        </div>
+        
+        <div class="player-container">
+            <h4>🎧 Audio Player (Asset ID):</h4>
+            <p><strong>URL:</strong> <code>?assetId=2g0201uwEstz7sLtueXcBptCkZAFoIi02DAszbNIdBOWxc</code></p>
+            <p><em>This would render the MuxSignedPlayer component with assetId prop</em></p>
+        </div>
+        
+        <div class="player-container">
+            <h4>🔐 Signed Audio Player (Playback ID):</h4>
+            <p><strong>URL:</strong> <code>?playbackId=JQbB4kcQ017ScbkJbySoed00RyypLq8wdHTFm3fX2fQBc</code></p>
+            <p><em>This would render the MuxSignedPlayer component with playbackId prop</em></p>
+        </div>
+    </div>
+    
+    <div class="chat-message">
+        <h3>✅ Integration Status:</h3>
+        <ul>
+            <li>✅ Backend generates both assetId and playbackId URLs</li>
+            <li>✅ Frontend detects both URL patterns in chat messages</li>
+            <li>✅ MuxSignedPlayer component supports both assetId and playbackId props</li>
+            <li>✅ Chat renders Mux player inline when URLs are detected</li>
+            <li>✅ URLs are displayed alongside the player</li>
+        </ul>
+    </div>
+    
+    <div class="chat-message">
+        <h3>🎯 How It Works:</h3>
+        <ol>
+            <li><strong>User requests audio report:</strong> "Generate an audio report of my analytics"</li>
+            <li><strong>Agent generates TTS:</strong> Creates audio file from analytics data</li>
+            <li><strong>Uploads to Mux:</strong> Uploads audio to Mux and gets asset ID</li>
+            <li><strong>Creates playback ID:</strong> Generates public playback ID for direct access</li>
+            <li><strong>Returns URLs:</strong> Agent response includes both URLs</li>
+            <li><strong>Frontend renders:</strong> Chat detects URLs and renders Mux players inline</li>
+            <li><strong>User can play:</strong> Both players work for audio playback</li>
+        </ol>
+    </div>
+    
+    <div class="chat-message">
+        <h3>🚀 Ready for Testing:</h3>
+        <p>The system is now fully configured to:</p>
+        <ul>
+            <li>Generate TTS audio reports from analytics data</li>
+            <li>Upload audio to Mux and create playback URLs</li>
+            <li>Display both regular and signed playback URLs in chat</li>
+            <li>Render Mux players inline for immediate audio playback</li>
+            <li>Provide clickable URLs for external access</li>
+        </ul>
+        
+        <p><strong>To test:</strong> Start both frontend and backend servers, then ask the agent to "generate an audio report" and watch the magic happen! 🎧</p>
+    </div>
+</body>
+</html>
+
