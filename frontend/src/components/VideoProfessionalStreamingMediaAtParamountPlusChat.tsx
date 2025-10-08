@@ -239,6 +239,9 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
       // Normalize line breaks
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
+      // Ensure proper spacing between different content blocks
+      .replace(/([.!?])\s*([A-Z])/g, '$1\n\n$2') // Add spacing after sentences before new sentences
+      .replace(/([.!?])\s*(\n)/g, '$1\n') // Clean up extra spacing after sentences
       // Handle multiple consecutive line breaks
       .replace(/\n{3,}/g, '\n\n')
       // Clean up extra spaces
@@ -434,9 +437,14 @@ export default function WeatherChat() {
       if (chunk.type === 'text' && chunk.content) {
         setMessages((prev) => {
           const assistantId = prev[prev.length - 1]?.id
-          return prev.map((m) => 
-            m.id === assistantId ? { ...m, content: m.content + chunk.content } : m
-          )
+          return prev.map((m) => {
+            if (m.id === assistantId) {
+              // Add newline between chunks for better syntax formatting
+              const separator = m.content && !m.content.endsWith('\n') ? '\n' : ''
+              return { ...m, content: m.content + separator + chunk.content }
+            }
+            return m
+          })
         })
         setHasAssistantResponded(true)
       } else if (chunk.type === 'tool_call') {

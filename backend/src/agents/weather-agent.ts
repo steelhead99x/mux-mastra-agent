@@ -694,9 +694,9 @@ const zipMemoryTool = createTool({
 
 /**
  * Create a Mux upload using either MCP or REST API based on USE_MUX_MCP env variable
- * @returns Upload data with id, url, and asset_id
+ * @returns Upload data with id, url, asset_id, and playback_id
  */
-async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string }> {
+async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string; playbackId?: string }> {
     const useMcp = process.env.USE_MUX_MCP === 'true';
     const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://weather-mcp-kd.streamingportfolio.com';
     const playbackPolicy = process.env.MUX_PLAYBACK_POLICY;
