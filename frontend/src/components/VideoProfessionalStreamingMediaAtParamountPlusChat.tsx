@@ -189,15 +189,9 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
   
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
-    // Check for both assetId and playbackId URLs
-    const assetIdPattern = /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g
-    const playbackIdPattern = /https:\/\/streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g
-    
-    const assetIdMatches = content.match(assetIdPattern)
-    const playbackIdMatches = content.match(playbackIdPattern)
-    
-    // Return the first match found (prioritize assetId)
-    return assetIdMatches ? assetIdMatches[0] : (playbackIdMatches ? playbackIdMatches[0] : null)
+    const muxUrlPattern = /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g
+    const matches = content.match(muxUrlPattern)
+    return matches ? matches[0] : null
   }
 
   // Function to detect and extract image URLs
@@ -258,12 +252,11 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
     const muxVideoUrl = detectMuxVideo(content)
     
     if (muxVideoUrl) {
-      // Extract assetId or playbackId from URL
+      // Extract assetId from URL
       const url = new URL(muxVideoUrl)
       const assetId = url.searchParams.get('assetId')
-      const playbackId = url.searchParams.get('playbackId')
       
-      if (assetId || playbackId) {
+      if (assetId) {
         // Remove the video URL from the text content
         const textContent = content.replace(muxVideoUrl, '').trim()
         
@@ -281,7 +274,6 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
             <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
               <MuxSignedPlayer 
                 assetId={assetId}
-                playbackId={playbackId}
                 className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
               />
               <div className="text-xs text-center mt-2" style={{ color: 'var(--fg-subtle)' }}>
