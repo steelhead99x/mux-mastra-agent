@@ -51,7 +51,15 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
-      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
+      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g,
+      // www subdomain patterns
+      /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
     ];
     
     for (const pattern of patterns) {
@@ -112,11 +120,18 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
             )}
             {/* Then render the video player */}
             <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-              <MuxSignedPlayer 
-                assetId={assetId || undefined}
-                playbackId={playbackId || undefined}
-                className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
-              />
+              <div className="relative">
+                <MuxSignedPlayer 
+                  assetId={assetId || undefined}
+                  playbackId={playbackId || undefined}
+                  className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
+                />
+                <div className="mt-2 text-center">
+                  <div className="text-sm" style={{ color: 'var(--fg-muted)' }}>
+                    🎧 Audio player auto-loaded - ready to play
+                  </div>
+                </div>
+              </div>
               <div className="mt-3 p-3 rounded-lg border" style={{ 
                 backgroundColor: 'var(--overlay)', 
                 borderColor: 'var(--border)' 

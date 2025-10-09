@@ -154,7 +154,7 @@ async function main() {
 
     console.log('⚙️  Configuring upload parameters...');
     const createArgs: any = {
-        cors_origin: process.env.MUX_CORS_ORIGIN || 'https://weather-mcp-kd.streamingportfolio.com'
+        cors_origin: process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com'
     };
     
     // Add playback policy configuration
@@ -349,7 +349,7 @@ async function main() {
     }
 
     // Always output player URL now that we have assetId
-    console.log(`🎬 Player URL: https://streamingportfolio.com/player.html?assetId=${assetId}`);
+    console.log(`🎬 Player URL: https://www.streamingportfolio.com/player.html?assetId=${assetId}`);
 
     // 2) Poll asset status via assets client until ready/errored
     console.log('🔍 Connecting to Mux Assets MCP server...');

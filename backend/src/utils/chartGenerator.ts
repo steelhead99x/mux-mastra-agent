@@ -214,7 +214,7 @@ export async function generateTemperatureChartFromForecast(
 export async function getChartUrl(chartPath: string): Promise<string> {
     // Use current server URL in development, production URL in production
     const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://weather-mcp-kd.streamingportfolio.com')
+        ? (process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com')
         : `http://localhost:${process.env.PORT || 3001}`;
     const fileName = basename(chartPath);
     return `${baseUrl}/files/charts/${fileName}`;

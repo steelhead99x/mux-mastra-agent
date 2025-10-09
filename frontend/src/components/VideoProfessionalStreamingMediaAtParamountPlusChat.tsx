@@ -198,7 +198,15 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
-      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
+      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g,
+      // www subdomain patterns
+      /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
     ];
     
     for (const pattern of patterns) {

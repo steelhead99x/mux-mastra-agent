@@ -85,7 +85,7 @@ interface MuxAssetResponse {
 
 // Configurable URLs with environment variable support
 const MUX_HLS_BASE_URL = process.env.MUX_HLS_BASE_URL || 'https://stream.mux.com';
-const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://streamingportfolio.com';
+const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com';
 
 // Memory optimization configuration removed - now using Mux direct upload
 
@@ -674,7 +674,7 @@ async function createPlaybackId(assetId: string): Promise<string> {
  */
 async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string; playbackId?: string }> {
     const useMcp = process.env.USE_MUX_MCP === 'true';
-    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://weather-mcp-kd.streamingportfolio.com';
+    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
     const playbackPolicy = process.env.MUX_PLAYBACK_POLICY;
     
     if (useMcp) {
@@ -970,7 +970,7 @@ const ttsWeatherTool = createTool({
                 console.debug(`[tts-weather-upload] Using background image: ${finalImagePath}`);
                 
                 // Try local server first, then fallback to public URLs
-                const localUrl = `${process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://weather-mcp-kd.streamingportfolio.com'}/files/images/${basename(finalImagePath)}`;
+                const localUrl = `${process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com'}/files/images/${basename(finalImagePath)}`;
                 
                 // Test if local URL is accessible
                 try {

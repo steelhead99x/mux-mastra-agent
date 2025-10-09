@@ -153,7 +153,7 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
         throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required and must be valid');
     }
     
-    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://weather-mcp-kd.streamingportfolio.com';
+    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
     const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
     
     const uploadPayload: any = {
@@ -250,7 +250,7 @@ async function putFileToMux(uploadUrl: string, filePath: string): Promise<void> 
     throw new Error(lastErr instanceof Error ? lastErr.message : String(lastErr));
 }
 
-const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://streamingportfolio.com';
+const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com';
 
 /**
  * TTS Analytics Report Tool - Generate audio report from analytics data

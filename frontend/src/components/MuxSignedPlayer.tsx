@@ -59,7 +59,7 @@ export default function MuxSignedPlayer({
 
   const assetId = assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
   const playbackId = playbackIdProp || playbackID || playbackid || playbackIdFromQuery
-  const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://streamingportfolio.com/api/tokens'
+  const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://www.streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
     | { status: 'idle' | 'loading' }
@@ -224,9 +224,12 @@ export default function MuxSignedPlayer({
     return (
       <div className={className}>
         <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
-          <div className="flex items-center gap-2">
-            <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full"></div>
-            <span>Loading video…</span>
+          <div className="flex flex-col items-center gap-3">
+            <div className="animate-spin w-6 h-6 border-2 border-current border-t-transparent rounded-full"></div>
+            <div className="text-center">
+              <div className="font-medium">Loading audio player...</div>
+              <div className="text-xs opacity-75">Preparing your audio content</div>
+            </div>
           </div>
         </div>
       </div>
@@ -236,8 +239,12 @@ export default function MuxSignedPlayer({
   if (state.status === 'error') {
     return (
       <div className={className}>
-        <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--error)', color: 'var(--error)' }}>
-          {state.message}
+        <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm p-4" style={{ background: 'var(--overlay)', borderColor: 'var(--error)', color: 'var(--error)' }}>
+          <div className="text-center">
+            <div className="font-medium mb-2">🎧 Audio Player Error</div>
+            <div className="text-xs opacity-75">{state.message}</div>
+            <div className="text-xs mt-2 opacity-50">Try refreshing or check the URL</div>
+          </div>
         </div>
       </div>
     )
@@ -247,9 +254,12 @@ export default function MuxSignedPlayer({
     <div className={className}>
       <Suspense fallback={
         <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
-          <div className="flex items-center gap-2">
-            <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full"></div>
-            <span>Loading player...</span>
+          <div className="flex flex-col items-center gap-3">
+            <div className="animate-spin w-6 h-6 border-2 border-current border-t-transparent rounded-full"></div>
+            <div className="text-center">
+              <div className="font-medium">Initializing player...</div>
+              <div className="text-xs opacity-75">Setting up audio controls</div>
+            </div>
           </div>
         </div>
       }>
@@ -262,6 +272,7 @@ export default function MuxSignedPlayer({
           }}
           streamType="on-demand"
           autoPlay={false}
+          preload="metadata"
           onLoadStart={() => {
             const loadStartTime = Date.now()
             const analyticsId = assetId || playbackId || 'unknown'

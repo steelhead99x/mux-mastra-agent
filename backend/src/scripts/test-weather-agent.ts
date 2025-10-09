@@ -281,7 +281,7 @@ async function main(): Promise<void> {
     const assetId = process.env.MUX_ASSET_ID;
     const playbackId = process.env.MUX_PLAYBACK_ID;
     if (assetId) {
-        const playerUrl = `https://streamingportfolio.com/player.html?assetId=${assetId}`;
+        const playerUrl = `https://www.streamingportfolio.com/player.html?assetId=${assetId}`;
         console.log(`\n🎥 Player link (streamingportfolio): ${playerUrl}`);
     } else if (playbackId) {
         const hlsUrl = `https://stream.mux.com/${playbackId}.m3u8`;
