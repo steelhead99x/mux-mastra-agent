@@ -46,7 +46,12 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
       // With playbackId parameter (alternative format)
       /https:\/\/streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
       // Handle URLs with line breaks or special characters
-      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g,
+      // New .html format patterns
+      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
+      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      /https:\/\/streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
     ];
     
     for (const pattern of patterns) {

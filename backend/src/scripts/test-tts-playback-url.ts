@@ -61,7 +61,7 @@ async function testTTSPlaybackURL() {
       }
       
       // Test if the URL contains the expected format
-      if (result.playerUrl.includes('streamingportfolio.com/player?assetId=')) {
+      if (result.playerUrl.includes('streamingportfolio.com/player.html?assetId=')) {
         console.log('✅ URL format is correct');
         
         // Extract asset ID from URL

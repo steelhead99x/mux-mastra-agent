@@ -365,7 +365,7 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                     assetId = await waitForAssetCreation(uploadId);
                     if (assetId) {
                         // Create player URL using asset ID - the player will handle signed tokens internally
-                        playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+                        playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${assetId}`;
                         console.debug('[tts-analytics-report] Player URL created with asset ID');
                     }
                 }
