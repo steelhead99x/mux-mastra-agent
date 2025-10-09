@@ -189,9 +189,18 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
   
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
-    const muxUrlPattern = /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g
+    // More flexible pattern that handles potential spacing issues
+    const muxUrlPattern = /https:\s*:\s*\/\s*\/\s*streamingportfolio\s*\.\s*com\s*\/\s*player\s*\?\s*assetId\s*=\s*([a-zA-Z0-9]+)/g
     const matches = content.match(muxUrlPattern)
-    return matches ? matches[0] : null
+    if (matches) {
+      // Clean up the URL by removing any extra spaces
+      return matches[0].replace(/\s+/g, '')
+    }
+    
+    // Fallback to exact pattern for clean URLs
+    const exactPattern = /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g
+    const exactMatches = content.match(exactPattern)
+    return exactMatches ? exactMatches[0] : null
   }
 
   // Function to detect and extract image URLs
@@ -239,9 +248,6 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
       // Normalize line breaks
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
-      // Ensure proper spacing between different content blocks
-      .replace(/([.!?])\s*([A-Z])/g, '$1\n\n$2') // Add spacing after sentences before new sentences
-      .replace(/([.!?])\s*(\n)/g, '$1\n') // Clean up extra spacing after sentences
       // Handle multiple consecutive line breaks
       .replace(/\n{3,}/g, '\n\n')
       // Clean up extra spaces
@@ -439,8 +445,30 @@ export default function WeatherChat() {
           const assistantId = prev[prev.length - 1]?.id
           return prev.map((m) => {
             if (m.id === assistantId) {
-              // Add newline between chunks for better syntax formatting
-              const separator = m.content && !m.content.endsWith('\n') ? '\n' : ''
+              // Smart separator logic to avoid breaking URLs but preserve list formatting
+              let separator = ''
+              if (m.content) {
+                const lastChar = m.content[m.content.length - 1]
+                const firstChar = chunk.content[0]
+                const urlChars = [':', '/', '=', '?', '&', '-', '_']
+                
+                // Always add space if already ends with space or newline
+                if (lastChar === ' ' || lastChar === '\n') {
+                  separator = ''
+                }
+                // Add newline for numbered lists (e.g., "1." -> "2.")
+                else if (lastChar === '.' && firstChar && firstChar.match(/[0-9]/)) {
+                  separator = '\n'
+                }
+                // Don't add space if it would break URLs (excluding '.' which is used in lists)
+                else if (urlChars.includes(lastChar) || urlChars.includes(firstChar)) {
+                  separator = ''
+                }
+                // Add space for regular text continuation
+                else {
+                  separator = ' '
+                }
+              }
               return { ...m, content: m.content + separator + chunk.content }
             }
             return m
