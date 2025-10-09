@@ -1,7 +1,6 @@
 import { Suspense, lazy } from 'react'
-import VideoProfessionalStreamingMediaAtParamountPlusChat from './components/VideoProfessionalStreamingMediaAtParamountPlusChat'
+import MuxAnalyticsChat from './components/MuxAnalyticsChat'
 import ThemeToggle from './components/ThemeToggle'
-import MCPDebugPanel from './components/MCPDebugPanel'
 import { MuxAnalyticsProvider } from './contexts/MuxAnalyticsContext'
 
 // Lazy load components to reduce initial bundle size
@@ -79,7 +78,7 @@ export default function App() {
                 </div>
               }>
                 <ErrorBoundary>
-                  <VideoProfessionalStreamingMediaAtParamountPlusChat />
+                  <MuxAnalyticsChat />
                 </ErrorBoundary>
               </Suspense>
             </div>
@@ -92,7 +91,6 @@ export default function App() {
       </footer>
 
       {/* Debug Panel */}
-      <MCPDebugPanel />
       </div>
     </MuxAnalyticsProvider>
   )

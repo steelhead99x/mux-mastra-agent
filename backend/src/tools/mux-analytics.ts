@@ -31,11 +31,6 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-// Check if we should use MCP (evaluate at runtime, not module load time)
-function shouldUseMCP(): boolean {
-    return process.env.USE_MUX_MCP === 'true';
-}
-
 // Mux API valid timeframe constraints
 const MUX_API_VALID_START = 1751241600; // Jun 30 2025
 const MUX_API_VALID_END = 1759964076;   // Oct 8 2025
@@ -79,64 +74,11 @@ function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [num
     return [start, end];
 }
 
-// Lazy-load MCP client only if needed
-let muxDataMcpClient: any = null;
-async function getMcpClient() {
-    if (!muxDataMcpClient && shouldUseMCP()) {
-        const { muxDataMcpClient: client } = await import('../mcp/mux-data-client.js');
-        muxDataMcpClient = client;
-        await muxDataMcpClient.connect();
-    }
-    return muxDataMcpClient;
-}
-
 /**
  * Make authenticated request to Mux Data API
- * Uses MCP if USE_MUX_MCP=true, otherwise uses direct REST API
+ * Uses direct REST API for simplicity and reliability
  */
 async function muxDataRequest(endpoint: string, params?: Record<string, any>): Promise<any> {
-    // Try MCP first if enabled
-    if (shouldUseMCP()) {
-        try {
-            const mcpClient = await getMcpClient();
-            if (mcpClient) {
-                const tools = await mcpClient.getTools();
-                
-                // Use invoke_api_endpoint directly with proper endpoint names
-                if (tools['invoke_api_endpoint']) {
-                    // Map our internal endpoints to MCP endpoint names
-                    let endpointName: string;
-                    
-                    if (endpoint === '/errors') {
-                        endpointName = 'list_data_errors';
-                    } else if (endpoint === '/video-views') {
-                        endpointName = 'list_data_video_views';
-                    } else if (endpoint === '/metrics/overall') {
-                        endpointName = 'get_overall_values_data_metrics';
-                    } else if (endpoint.includes('/breakdown')) {
-                        // Convert breakdown endpoints to MCP format
-                        endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
-                    } else {
-                        // Generic conversion
-                        endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
-                    }
-                    
-                    console.log(`[mux-analytics] Calling MCP endpoint: ${endpointName}`);
-                    
-                    return await tools['invoke_api_endpoint'].execute({
-                        context: {
-                            endpoint_name: endpointName,
-                            args: params || {},
-                        },
-                    });
-                }
-            }
-        } catch (mcpError) {
-            console.warn('[mux-analytics] MCP request failed, falling back to REST API:', mcpError);
-        }
-    }
-    
-    // Fallback to direct REST API
     const muxTokenId = process.env.MUX_TOKEN_ID;
     const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
     

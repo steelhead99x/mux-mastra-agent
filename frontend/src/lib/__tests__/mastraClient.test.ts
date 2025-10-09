@@ -30,19 +30,19 @@ describe('Mastra Client Configuration', () => {
     // The client should be configured with localhost for tests
   });
 
-  it('should get video professional streaming media at paramount plus agent ID from environment', async () => {
-    const { getVideoProfessionalStreamingMediaAtParamountPlusAgentId } = await import('../mastraClient');
+  it('should get mux analytics agent ID from environment', async () => {
+    const { getMuxAnalyticsAgentId } = await import('../mastraClient');
     
     // Set the environment variable for this test
-    const originalValue = import.meta.env.VITE_WEATHER_AGENT_ID;
-    import.meta.env.VITE_WEATHER_AGENT_ID = 'video professional streaming media at paramount plus';
+    const originalValue = import.meta.env.VITE_MUX_ANALYTICS_AGENT_ID;
+    import.meta.env.VITE_MUX_ANALYTICS_AGENT_ID = 'mux-analytics';
     
-    const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId();
+    const agentId = getMuxAnalyticsAgentId();
     // The function returns the env var value if set, otherwise the default fallback
-    expect(agentId).toBe('video professional streaming media at paramount plus'); // This matches the value in env.example
+    expect(agentId).toBe('mux-analytics');
     
     // Restore original value
-    import.meta.env.VITE_WEATHER_AGENT_ID = originalValue;
+    import.meta.env.VITE_MUX_ANALYTICS_AGENT_ID = originalValue;
   });
 
   it('should get display host', async () => {

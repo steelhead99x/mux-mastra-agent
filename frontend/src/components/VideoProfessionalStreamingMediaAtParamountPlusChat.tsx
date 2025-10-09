@@ -6,16 +6,9 @@ import MuxSignedPlayer from './MuxSignedPlayer'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
 
 /**
- * Mux Analytics Chat Component with improved streamVNext implementation
+ * Mux Analytics Chat Component for Paramount Plus Streaming Analytics
  * 
- * Features:
- * - Better error handling and retry logic
- * - Performance metrics and monitoring
- * - Improved TypeScript types
- * - Enhanced user experience with loading states
- * - Tool call visualization
- * - Memoized components for performance
- * - Supports any text input for analytics queries
+ * Simplified interface for analyzing Mux video streaming data with AI-powered insights
  */
 
 /**

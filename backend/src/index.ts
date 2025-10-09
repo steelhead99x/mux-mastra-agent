@@ -2,25 +2,16 @@ import { config } from 'dotenv';
 import { resolve as resolvePath } from 'path';
 import { existsSync } from 'fs';
 
-// Load environment variables - try multiple locations
-// 1. First try root .env (when running from backend/)
+// Simplified environment loading - only look for root .env file
+// This ensures all environment variables are managed in one place
 const rootEnvPath = resolvePath(process.cwd(), '../.env');
-// 2. Try current directory .env (when running from root)
-const localEnvPath = resolvePath(process.cwd(), '.env');
-// 3. Try backend/.env as fallback
-const backendEnvPath = resolvePath(process.cwd(), 'backend/.env');
 
 if (existsSync(rootEnvPath)) {
-  console.log('[env] Loading from:', rootEnvPath);
+  console.log('[env] Loading from root .env:', rootEnvPath);
   config({ path: rootEnvPath });
-} else if (existsSync(localEnvPath)) {
-  console.log('[env] Loading from:', localEnvPath);
-  config({ path: localEnvPath });
-} else if (existsSync(backendEnvPath)) {
-  console.log('[env] Loading from:', backendEnvPath);
-  config({ path: backendEnvPath });
 } else {
-  console.warn('[env] No .env file found. Relying on system environment variables.');
+  console.warn('[env] No .env file found at root. Please copy env.example to .env and configure your variables.');
+  console.warn('[env] Relying on system environment variables.');
   config(); // Load from default location
 }
 
@@ -36,12 +27,10 @@ import { resolve, join } from 'path';
 
 const mastra = new Mastra({
   agents: { 
-    // Register with ID 'mux-analytics' for the new agent
+    // Primary agent for Mux analytics
     'mux-analytics': muxAnalyticsAgent,
-    // Register media vault agent
+    // Media vault agent for additional functionality
     'media-vault': mediaVaultAgent,
-    // Legacy support: also register as 'video professional streaming media at paramount plus' for backwards compatibility
-    'video professional streaming media at paramount plus': muxAnalyticsAgent
   },
 });
 
@@ -166,14 +155,13 @@ app.get('/debug/mcp', async (_req, res) => {
 app.get('/api/agents', (_req, res) => {
   res.json([
     { id: 'mux-analytics', name: 'Mux Analytics Agent' },
-    { id: 'media-vault', name: 'Media Vault Agent' },
-    { id: 'video professional streaming media at paramount plus', name: 'Paramount Plus Video Professional Streaming Media (legacy)' }
+    { id: 'media-vault', name: 'Media Vault Agent' }
   ]);
 });
 
 app.get('/api/agents/:agentId', (req, res) => {
   const agentId = req.params.agentId;
-  if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+  if (agentId === 'mux-analytics') {
     res.json({ id: agentId, name: 'Mux Analytics Agent' });
   } else if (agentId === 'media-vault') {
     res.json({ id: agentId, name: 'Media Vault Agent' });
@@ -189,7 +177,7 @@ app.post('/api/agents/:agentId/invoke', async (req, res) => {
     
     // Determine which agent to use
     let agent;
-    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+    if (agentId === 'mux-analytics') {
       agent = muxAnalyticsAgent;
     } else if (agentId === 'media-vault') {
       agent = mediaVaultAgent;
@@ -230,7 +218,7 @@ app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
     
     // Determine which agent to use
     let agent;
-    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+    if (agentId === 'mux-analytics') {
       agent = muxAnalyticsAgent;
     } else if (agentId === 'media-vault') {
       agent = mediaVaultAgent;
@@ -295,7 +283,7 @@ app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
     
     // Determine which agent to use
     let agent;
-    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+    if (agentId === 'mux-analytics') {
       agent = muxAnalyticsAgent;
     } else if (agentId === 'media-vault') {
       agent = mediaVaultAgent;

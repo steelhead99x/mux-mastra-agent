@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     // Expose VITE_ prefixed variables from root .env
     define: {
       'import.meta.env.VITE_MASTRA_API_HOST': JSON.stringify(env.VITE_MASTRA_API_HOST),
+      'import.meta.env.VITE_MUX_ANALYTICS_AGENT_ID': JSON.stringify(env.VITE_MUX_ANALYTICS_AGENT_ID),
       'import.meta.env.VITE_WEATHER_AGENT_ID': JSON.stringify(env.VITE_WEATHER_AGENT_ID),
       'import.meta.env.VITE_MUX_ASSET_ID': JSON.stringify(env.VITE_MUX_ASSET_ID),
       'import.meta.env.VITE_MUX_DEFAULT_ASSET_ID': JSON.stringify(env.VITE_MUX_DEFAULT_ASSET_ID),

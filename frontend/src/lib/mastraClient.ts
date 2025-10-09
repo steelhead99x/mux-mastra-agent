@@ -151,8 +151,8 @@ mastra.getDynamicToolsets = async () => {
   }
 }
 
-export function getVideoProfessionalStreamingMediaAtParamountPlusAgentId() {
-  return ((import.meta as any)?.env?.VITE_WEATHER_AGENT_ID as string) || 'video professional streaming media at paramount plus'
+export function getMuxAnalyticsAgentId() {
+  return ((import.meta as any)?.env?.VITE_MUX_ANALYTICS_AGENT_ID as string) || 'mux-analytics'
 }
 
 // Optional helper for UI/status displays

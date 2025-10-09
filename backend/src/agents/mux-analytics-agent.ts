@@ -2,17 +2,11 @@ import { config } from 'dotenv';
 import { resolve as resolvePath } from 'path';
 import { existsSync } from 'fs';
 
-// Load environment variables
+// Simplified environment loading - only look for root .env file
 const rootEnvPath = resolvePath(process.cwd(), '../.env');
-const localEnvPath = resolvePath(process.cwd(), '.env');
-const backendEnvPath = resolvePath(process.cwd(), 'backend/.env');
 
 if (existsSync(rootEnvPath)) {
   config({ path: rootEnvPath });
-} else if (existsSync(localEnvPath)) {
-  config({ path: localEnvPath });
-} else if (existsSync(backendEnvPath)) {
-  config({ path: backendEnvPath });
 } else {
   config();
 }
@@ -27,7 +21,7 @@ import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, 
 
 // Utility function to sanitize API keys from error messages
 function sanitizeApiKey(message: string): string {
-    return message.replace(/[A-Za-z0-9]{20,}/g, '[REDACTED_API_KEY]');
+    return message.replace(/[A-Za-z0-9]{20,}/g, '[REDACTED]');
 }
 
 // Utility function to validate API key format without exposing the key
@@ -420,44 +414,38 @@ This report covers the monitoring status for the last 24 hours, confirming that 
 });
 
 /**
- * System prompt for the Mux analytics agent
+ * System prompt for the Mux analytics agent focused on Paramount Plus streaming
  */
 function buildSystemPrompt() {
     return [
-        'You are an expert streaming video engineer specializing in Mux video analytics and optimization.',
-        'Your role is to analyze video streaming data, identify performance issues, and provide actionable recommendations.',
+        'You are a streaming video engineer specializing in Paramount Plus video analytics and optimization.',
+        'Your role is to analyze Mux video streaming data to optimize the Paramount Plus streaming experience.',
         '',
         'CAPABILITIES:',
         '- Analyze Mux video streaming metrics (errors, rebuffering, startup time, playback quality)',
-        '- Get detailed error breakdowns by platform (operating system), browser, and other dimensions',
+        '- Get detailed error breakdowns by platform, browser, and device type',
         '- List and inspect video assets in the Mux account',
         '- Review detailed video view data and user engagement',
-        '- Generate comprehensive audio reports summarizing findings (always under 1000 words)',
+        '- Generate audio reports summarizing findings (under 1000 words)',
         '',
         'ANALYSIS APPROACH:',
-        '- Focus on key performance indicators: error rates, rebuffering, startup time, playback failures',
-        '- Provide specific, actionable recommendations from a video engineering perspective',
-        '- Consider CDN performance, encoding settings, player configuration, and network conditions',
+        '- Focus on Paramount Plus streaming KPIs: error rates, rebuffering, startup time, playback failures',
+        '- Provide specific recommendations for streaming optimization',
+        '- Consider CDN performance, encoding settings, and player configuration',
         '- Prioritize issues by severity and user impact',
-        '- Never expose API keys, tokens, or sensitive credentials in responses',
-        '',
-        'AUDIO REPORTS:',
-        '- When requested, automatically generate TTS audio reports using the ttsAnalyticsReportTool',
-        '- Always keep summaries concise and under 1000 words',
-        '- Focus on the most critical findings and top recommendations',
-        '- Present technical information in an accessible way',
+        '- Never expose API keys or sensitive credentials',
         '',
         'INTERACTION STYLE:',
-        '- Be professional but approachable',
-        '- Use clear, technical language appropriate for engineering teams',
-        '- Provide context and reasoning for all recommendations',
-        '- When presenting data, highlight actionable insights',
+        '- Be professional and technical',
+        '- Use clear language appropriate for engineering teams',
+        '- Provide actionable insights and recommendations',
+        '- Focus on measurable improvements for Paramount Plus streaming',
     ].join('\n');
 }
 
 export const muxAnalyticsAgent: any = new Agent({
     name: 'muxAnalyticsAgent',
-    description: 'Expert streaming video engineer that analyzes Mux video data, identifies issues, and recommends optimizations. Generates audio reports summarizing findings in under 1000 words.',
+    description: 'Paramount Plus streaming video engineer that analyzes Mux video data, identifies issues, and recommends optimizations. Generates audio reports summarizing findings.',
     instructions: buildSystemPrompt(),
     model: anthropic(process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'),
     tools: {
