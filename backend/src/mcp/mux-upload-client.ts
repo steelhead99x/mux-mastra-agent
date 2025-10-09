@@ -477,20 +477,32 @@ class MuxMCPClient {
                                     if (error instanceof Error && (
                                         error.message.includes('union is not a function') ||
                                         error.message.includes('evaluatedProperties.union') ||
-                                        error.message.includes('needle.evaluatedProperties')
+                                        error.message.includes('needle.evaluatedProperties') ||
+                                        error.message.includes('Cannot read properties of undefined')
                                     )) {
                                         console.error(`MCP SDK version conflict error for tool ${tool.name}:`, {
                                             toolName: tool.name,
                                             context,
                                             error: error.message,
                                             stack: error.stack,
-                                            sdkVersion: '1.17.5+',
+                                            sdkVersion: '1.19.1+',
                                             suggestion: 'This error indicates a version conflict in @modelcontextprotocol/sdk. Please ensure all dependencies are updated.'
                                         });
                                         
                                         // Return a more user-friendly error with actionable information
                                         throw new Error(`MCP tool ${tool.name} failed due to SDK version conflict. The @modelcontextprotocol/sdk version needs to be updated to 1.19.1 or higher to resolve this issue.`);
                                     }
+                                    
+                                    // Handle other MCP-related errors
+                                    if (error instanceof Error && error.message.includes('MCP')) {
+                                        console.error(`MCP error for tool ${tool.name}:`, {
+                                            toolName: tool.name,
+                                            context,
+                                            error: error.message
+                                        });
+                                        throw new Error(`MCP tool ${tool.name} failed: ${error.message}`);
+                                    }
+                                    
                                     throw error;
                                 }
                             },
@@ -602,7 +614,8 @@ class MuxMCPClient {
                             }
                             
                             // Additional safety: Remove any other potentially problematic nested objects
-                            problematicKeys.forEach(key => {
+                            const problematicKeys = ['new_asset_settings', 'playback_policies', 'cors_origin'];
+                            problematicKeys.forEach((key: string) => {
                                 if (filteredCtx[key]) {
                                     console.debug(`[invoke_api_endpoint] Removing potentially problematic key: ${key}`);
                                     delete filteredCtx[key];

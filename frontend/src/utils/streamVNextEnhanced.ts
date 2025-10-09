@@ -115,10 +115,24 @@ export class StreamVNextEnhanced {
     }, options.timeout || this.config.defaultTimeout)
 
     try {
-      const response = await agent.streamVNext(cleanMessage, {
-        ...options,
-        abortSignal: controller.signal
-      })
+      // Handle different agent types
+      let response: any;
+      
+      if (agent.streamVNext) {
+        // Direct agent call
+        response = await agent.streamVNext([{ role: 'user', content: cleanMessage }], {
+          ...options,
+          abortSignal: controller.signal
+        })
+      } else {
+        // Fallback to text method
+        response = await agent.text([{ role: 'user', content: cleanMessage }])
+        // Convert text response to streaming format
+        response = {
+          text: response.text || response,
+          textStream: this.createTextStream(response.text || response)
+        }
+      }
 
       clearTimeout(timeoutId)
       return this.validateResponse(response)
@@ -131,6 +145,25 @@ export class StreamVNextEnhanced {
       }
       
       throw error
+    }
+  }
+
+  private createTextStream(text: string): AsyncIterable<string> {
+    return {
+      async *[Symbol.asyncIterator]() {
+        // Split text into chunks for streaming effect
+        const words = text.split(' ')
+        const chunkSize = Math.max(1, Math.floor(words.length / 10)) // 10 chunks
+        
+        for (let i = 0; i < words.length; i += chunkSize) {
+          const chunk = words.slice(i, i + chunkSize).join(' ')
+          if (chunk.trim()) {
+            yield chunk + (i + chunkSize < words.length ? ' ' : '')
+            // Small delay to simulate streaming
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+        }
+      }
     }
   }
 

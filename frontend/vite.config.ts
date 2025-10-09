@@ -26,10 +26,12 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 3000,
+      strictPort: true, // Fail if port 3000 is not available
       proxy: {
         '/api': {
           target: 'http://localhost:3001',
           changeOrigin: true,
+          timeout: 30000, // Increase timeout to prevent proxy errors
         },
       },
     },

@@ -307,10 +307,6 @@ app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
       messages = [{ role: 'user', content: 'hello' }];
     }
 
-    // Set headers for streaming response
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
     console.log(`[streamVNext] Received request for agent: ${agentId}`);
     console.log(`[streamVNext] Raw body:`, JSON.stringify(req.body, null, 2));
     console.log(`[streamVNext] Processed messages:`, messages);
@@ -326,62 +322,105 @@ app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
         'Transfer-Encoding': 'chunked',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
 
       let chunkCount = 0;
+      let totalContent = '';
       try {
         for await (const chunk of stream.textStream) {
           if (chunk && typeof chunk === 'string') {
             chunkCount++;
+            totalContent += chunk;
             res.write(chunk);
           }
         }
-        console.log(`[streamVNext] Stream completed with ${chunkCount} chunks`);
+        console.log(`[streamVNext] Stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
       } catch (streamError) {
         console.error('[streamVNext] Stream error:', streamError);
+        // Write error as text chunk
+        res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
       }
 
       res.end();
     } else if (stream.fullStream) {
       // Handle full stream chunks
       res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Type': 'text/plain; charset=utf-8',
         'Transfer-Encoding': 'chunked',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
 
       let chunkCount = 0;
+      let totalContent = '';
       try {
         for await (const chunk of stream.fullStream) {
           if (chunk && chunk.type === 'text' && chunk.content) {
             chunkCount++;
+            totalContent += chunk.content;
             res.write(chunk.content);
           }
         }
-        console.log(`[streamVNext] Full stream completed with ${chunkCount} chunks`);
+        console.log(`[streamVNext] Full stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
       } catch (streamError) {
         console.error('[streamVNext] Full stream error:', streamError);
+        // Write error as text chunk
+        res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
       }
 
       res.end();
+    } else if (stream.text) {
+      // Handle simple text response
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.write(stream.text);
+      res.end();
     } else {
       // Fallback: return simple text response
-      const text = stream.text || 'Stream completed';
-      res.json({
-        streamed: true,
-        text,
-        method: 'streamVNext',
-        chunks: 1
+      const text = 'No content available from agent';
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
       });
+      res.write(text);
+      res.end();
     }
 
   } catch (error) {
     console.error('[streamVNext] Error:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error),
-      streamed: false
-    });
+    
+    // Try to send error as streaming response
+    try {
+      res.writeHead(500, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.write(`[Error: ${error instanceof Error ? error.message : String(error)}]`);
+      res.end();
+    } catch (writeError) {
+      // If we can't write to the response, send JSON error
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        streamed: false
+      });
+    }
   }
 });
 

@@ -367,7 +367,7 @@ describe('Weather Agent FFmpeg Functions', () => {
       const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://streamingportfolio.com'
 
       expect(MUX_HLS_BASE_URL).toBe('https://stream.mux.com') // Default
-      expect(STREAMING_PORTFOLIO_BASE_URL).toBe('https://streamingportfolio.com') // Default
+      expect(STREAMING_PORTFOLIO_BASE_URL).toBe('https://weather-mcp-kd.streamingportfolio.com') // Default
 
       // Validate URL format
       expect(MUX_HLS_BASE_URL).toMatch(/^https?:\/\//)

@@ -47,11 +47,18 @@ export default function MuxAnalyticsChat() {
   // Optional Mux analytics - only use if provider is available
   const muxAnalytics = useMuxAnalytics()
 
+  const [streamingContent, setStreamingContent] = useState('')
+
   // Enhanced streamVNext hook with better error handling
   const { state, streamVNext } = useStreamVNext({
     maxRetries: 3,
     timeout: 30000,
-    enableMetrics: true
+    enableMetrics: true,
+    onChunk: (chunk) => {
+      if (chunk.type === 'text' && chunk.content) {
+        setStreamingContent(prev => prev + chunk.content)
+      }
+    }
   })
 
   const { isLoading, error, isStreaming } = state
@@ -138,31 +145,35 @@ export default function MuxAnalyticsChat() {
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
     setInput('')
-
-    const threadId = `thread-${Date.now()}`
-    const resourceId = `resource-${Date.now()}`
-
-    const systemPrompt = `You are a Mux Video Analytics Agent, an expert streaming video engineer. Analyze Mux video streaming data, identify performance issues, and provide actionable recommendations. Focus on error rates, rebuffering, startup times, playback quality, and CDN performance. Provide technical insights appropriate for engineering teams. Keep responses clear, specific, and focused on measurable improvements.`
+    setStreamingContent('') // Reset streaming content for new message
 
     try {
-      await streamVNext(agent, userMsg.content, {
-        format: 'mastra',
-        system: systemPrompt,
-        memory: {
-          thread: threadId,
-          resource: resourceId,
-        },
-        timeout: 30000,
-        retries: 3
-      })
+      // Use the agent's streamVNext method directly
+      const response = await agent.streamVNext([{ role: 'user', content: trimmed }])
+      
+      // Handle streaming response
+      if (response.textStream) {
+        let fullContent = ''
+        for await (const chunk of response.textStream) {
+          if (chunk && typeof chunk === 'string') {
+            fullContent += chunk
+            setStreamingContent(fullContent)
+          }
+        }
+      } else if (response.text) {
+        // Handle non-streaming response
+        setStreamingContent(response.text)
+      }
     } catch (error) {
-      // Error handling is managed by the useStreamVNext hook
+      console.error('[MuxAnalyticsChat] Error:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      setStreamingContent(`Error: ${errorMessage}`)
     }
-  }, [input, agent, streamVNext, hasAssistantResponded])
+  }, [input, agent, hasAssistantResponded])
 
   // Handle streaming updates
   useEffect(() => {
-    if (isStreaming && messages.length > 0) {
+    if (isStreaming && streamingContent && messages.length > 0) {
       const lastMessage = messages[messages.length - 1]
       if (lastMessage.role === 'assistant') {
         // Update the last assistant message with streaming content
@@ -172,19 +183,20 @@ export default function MuxAnalyticsChat() {
           if (updated[lastIndex].role === 'assistant') {
             updated[lastIndex] = {
               ...updated[lastIndex],
-              content: updated[lastIndex].content + (streamVNext as any)?.currentChunk || ''
+              content: streamingContent
             }
           }
           return updated
         })
       }
     }
-  }, [isStreaming, messages, streamVNext])
+  }, [isStreaming, streamingContent, messages.length]) // Only update when streaming content changes
 
   // Handle completion
   useEffect(() => {
     if (!isStreaming && !isLoading && hasAssistantResponded) {
       setHasAssistantResponded(false)
+      setStreamingContent('') // Reset streaming content when done
     }
   }, [isStreaming, isLoading, hasAssistantResponded])
 

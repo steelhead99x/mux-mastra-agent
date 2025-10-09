@@ -155,27 +155,39 @@ class MuxAssetsMCPClient {
                             
                             try {
                                 return (await this.client.callTool({ name: tool.name, arguments: context || {} })).content;
-                            } catch (error) {
-                                // Handle union type errors from MCP SDK version conflicts
-                                if (error instanceof Error && (
-                                    error.message.includes('union is not a function') ||
-                                    error.message.includes('evaluatedProperties.union') ||
-                                    error.message.includes('needle.evaluatedProperties')
-                                )) {
-                                    console.error(`MCP SDK version conflict error for tool ${tool.name}:`, {
-                                        toolName: tool.name,
-                                        context,
-                                        error: error.message,
-                                        stack: error.stack,
-                                        sdkVersion: '1.17.5+',
-                                        suggestion: 'This error indicates a version conflict in @modelcontextprotocol/sdk. Please ensure all dependencies are updated.'
-                                    });
+                                } catch (error) {
+                                    // Handle union type errors from MCP SDK version conflicts
+                                    if (error instanceof Error && (
+                                        error.message.includes('union is not a function') ||
+                                        error.message.includes('evaluatedProperties.union') ||
+                                        error.message.includes('needle.evaluatedProperties') ||
+                                        error.message.includes('Cannot read properties of undefined')
+                                    )) {
+                                        console.error(`MCP SDK version conflict error for tool ${tool.name}:`, {
+                                            toolName: tool.name,
+                                            context,
+                                            error: error.message,
+                                            stack: error.stack,
+                                            sdkVersion: '1.19.1+',
+                                            suggestion: 'This error indicates a version conflict in @modelcontextprotocol/sdk. Please ensure all dependencies are updated.'
+                                        });
+                                        
+                                        // Return a more user-friendly error with actionable information
+                                        throw new Error(`MCP tool ${tool.name} failed due to SDK version conflict. The @modelcontextprotocol/sdk version needs to be updated to 1.19.1 or higher to resolve this issue.`);
+                                    }
                                     
-                                    // Return a more user-friendly error with actionable information
-                                    throw new Error(`MCP tool ${tool.name} failed due to SDK version conflict. The @modelcontextprotocol/sdk version needs to be updated to 1.19.1 or higher to resolve this issue.`);
+                                    // Handle other MCP-related errors
+                                    if (error instanceof Error && error.message.includes('MCP')) {
+                                        console.error(`MCP error for tool ${tool.name}:`, {
+                                            toolName: tool.name,
+                                            context,
+                                            error: error.message
+                                        });
+                                        throw new Error(`MCP tool ${tool.name} failed: ${error.message}`);
+                                    }
+                                    
+                                    throw error;
                                 }
-                                throw error;
-                            }
                         },
                     });
                 } catch (e) {

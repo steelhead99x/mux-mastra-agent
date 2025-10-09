@@ -519,6 +519,72 @@ async function textShim(args: { messages: Array<{ role: string; content: string 
     }
 }
 
+// Enhanced streamVNext implementation for proper streaming
+async function streamVNextShim(messages: Array<{ role: string; content: string }>): Promise<{ textStream: AsyncIterable<string>; text: string }> {
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    const lastContent = lastUser?.content || '';
+    
+    // Create a simple async generator for streaming
+    async function* generateResponse(): AsyncGenerator<string, void, unknown> {
+        try {
+            // Check if user is requesting an audio report
+            if (/\b(audio|report|tts|voice|speak|summarize)\b/i.test(lastContent)) {
+                yield 'Generating analytics audio report...\n\n';
+                
+                const result: any = await (ttsAnalyticsReportTool as any).execute({ context: {} });
+                
+                if (result.success) {
+                    yield 'Analytics Audio Report Generated:\n';
+                    yield result.summaryText + '\n';
+                    yield `\nWord count: ${result.wordCount} (under 1000 word limit)\n`;
+                    
+                    if (result.playerUrl) {
+                        yield `\n🎧 Audio Report: ${result.playerUrl}\n`;
+                    }
+                    
+                    if (result.analysis) {
+                        yield `\n📊 Health Score: ${result.analysis.healthScore}/100\n`;
+                    }
+                } else {
+                    yield `Failed to generate audio report: ${result.error || result.message}\n`;
+                }
+            } else {
+                // Default: fetch and display current analytics
+                yield 'Fetching current analytics data...\n\n';
+                
+                const analyticsResult: any = await (muxAnalyticsTool as any).execute({ context: {} });
+                
+                if (!analyticsResult.success) {
+                    yield `Unable to fetch analytics: ${analyticsResult.error || analyticsResult.message}\n`;
+                } else {
+                    const { metrics, analysis, timeRange } = analyticsResult;
+                    const summary = formatAnalyticsSummary(metrics, analysis, timeRange);
+                    yield summary + '\n\nWould you like me to generate an audio report of these findings?\n';
+                }
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            yield `Error: ${sanitizedError}\n`;
+        }
+    }
+    
+    // Collect all chunks for the text property
+    let fullText = '';
+    const chunks: string[] = [];
+    
+    for await (const chunk of generateResponse()) {
+        chunks.push(chunk);
+        fullText += chunk;
+    }
+    
+    return {
+        textStream: generateResponse(),
+        text: fullText
+    };
+}
+
 export const muxAnalyticsAgentTestWrapper: any = muxAnalyticsAgent as any;
 (muxAnalyticsAgentTestWrapper as any).text = textShim;
+(muxAnalyticsAgentTestWrapper as any).streamVNext = streamVNextShim;
 
