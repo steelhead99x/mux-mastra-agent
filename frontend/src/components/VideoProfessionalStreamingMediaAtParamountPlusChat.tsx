@@ -189,18 +189,31 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
   
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
-    // More flexible pattern that handles potential spacing issues
-    const muxUrlPattern = /https:\s*:\s*\/\s*\/\s*streamingportfolio\s*\.\s*com\s*\/\s*player\s*\?\s*assetId\s*=\s*([a-zA-Z0-9]+)/g
-    const matches = content.match(muxUrlPattern)
-    if (matches) {
-      // Clean up the URL by removing any extra spaces
-      return matches[0].replace(/\s+/g, '')
+    // More comprehensive pattern that handles various URL formats and spacing issues
+    const patterns = [
+      // Standard format with potential spacing issues
+      /https:\s*:\s*\/\s*\/\s*streamingportfolio\s*\.\s*com\s*\/\s*player\s*\?\s*assetId\s*=\s*([a-zA-Z0-9]+)/g,
+      // Clean standard format
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g,
+      // With additional parameters
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      // With playbackId parameter (alternative format)
+      /https:\/\/streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      // Handle URLs with line breaks or special characters
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
+    ];
+    
+    for (const pattern of patterns) {
+      const matches = content.match(pattern);
+      if (matches) {
+        // Clean up the URL by removing any extra spaces and normalize
+        const cleanUrl = matches[0].replace(/\s+/g, '').trim();
+        console.log('[detectMuxVideo] Found URL:', cleanUrl);
+        return cleanUrl;
+      }
     }
     
-    // Fallback to exact pattern for clean URLs
-    const exactPattern = /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g
-    const exactMatches = content.match(exactPattern)
-    return exactMatches ? exactMatches[0] : null
+    return null;
   }
 
   // Function to detect and extract image URLs
@@ -261,11 +274,15 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
     const muxVideoUrl = detectMuxVideo(content)
     
     if (muxVideoUrl) {
-      // Extract assetId from URL
+      // Extract assetId or playbackId from URL
       const url = new URL(muxVideoUrl)
       const assetId = url.searchParams.get('assetId')
+      const playbackId = url.searchParams.get('playbackId')
       
-      if (assetId) {
+      // Use assetId if available, otherwise fallback to playbackId
+      const idToUse = assetId || playbackId
+      
+      if (idToUse) {
         // Remove the video URL from the text content
         const textContent = content.replace(muxVideoUrl, '').trim()
         
@@ -282,11 +299,70 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
             {/* Then render the video player */}
             <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
               <MuxSignedPlayer 
-                assetId={assetId}
+                assetId={assetId || undefined}
+                playbackId={playbackId || undefined}
                 className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
               />
-              <div className="text-xs text-center mt-2" style={{ color: 'var(--fg-subtle)' }}>
-                🎧 Audio: {muxVideoUrl}
+              <div className="mt-3 p-3 rounded-lg border" style={{ 
+                backgroundColor: 'var(--overlay)', 
+                borderColor: 'var(--border)' 
+              }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
+                    🎧 Player URL
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(muxVideoUrl).then(() => {
+                        // Show temporary success feedback
+                        const button = event?.target as HTMLButtonElement;
+                        const originalText = button.textContent;
+                        button.textContent = 'Copied!';
+                        button.style.color = 'var(--success)';
+                        setTimeout(() => {
+                          button.textContent = originalText;
+                          button.style.color = '';
+                        }, 2000);
+                      }).catch(err => {
+                        console.error('Failed to copy URL:', err);
+                      });
+                    }}
+                    className="text-xs px-2 py-1 rounded border transition-colors hover:bg-opacity-80"
+                    style={{ 
+                      backgroundColor: 'var(--accent)', 
+                      borderColor: 'var(--accent)',
+                      color: 'var(--accent-fg)'
+                    }}
+                  >
+                    Copy URL
+                  </button>
+                </div>
+                <div className="text-xs break-all p-2 rounded border" style={{ 
+                  backgroundColor: 'var(--background)', 
+                  borderColor: 'var(--border)',
+                  color: 'var(--fg-muted)',
+                  fontFamily: 'monospace'
+                }}>
+                  {muxVideoUrl}
+                </div>
+                <div className="text-xs mt-2 space-y-1" style={{ color: 'var(--fg-subtle)' }}>
+                  {assetId && (
+                    <div>
+                      Asset ID: <code className="px-1 py-0.5 rounded text-xs" style={{ 
+                        backgroundColor: 'var(--overlay)', 
+                        color: 'var(--fg-muted)' 
+                      }}>{assetId}</code>
+                    </div>
+                  )}
+                  {playbackId && (
+                    <div>
+                      Playback ID: <code className="px-1 py-0.5 rounded text-xs" style={{ 
+                        backgroundColor: 'var(--overlay)', 
+                        color: 'var(--fg-muted)' 
+                      }}>{playbackId}</code>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -445,14 +521,14 @@ export default function WeatherChat() {
           const assistantId = prev[prev.length - 1]?.id
           return prev.map((m) => {
             if (m.id === assistantId) {
-              // Smart separator logic to avoid breaking URLs but preserve list formatting
+              // Smart separator logic to avoid breaking URLs but preserve proper text formatting
               let separator = ''
               if (m.content) {
                 const lastChar = m.content[m.content.length - 1]
                 const firstChar = chunk.content[0]
                 const urlChars = [':', '/', '=', '?', '&', '-', '_']
                 
-                // Always add space if already ends with space or newline
+                // No separator if already ends with space or newline
                 if (lastChar === ' ' || lastChar === '\n') {
                   separator = ''
                 }
@@ -460,11 +536,16 @@ export default function WeatherChat() {
                 else if (lastChar === '.' && firstChar && firstChar.match(/[0-9]/)) {
                   separator = '\n'
                 }
-                // Don't add space if it would break URLs (excluding '.' which is used in lists)
+                // Don't add space if it would break URLs
                 else if (urlChars.includes(lastChar) || urlChars.includes(firstChar)) {
                   separator = ''
                 }
-                // Add space for regular text continuation
+                // Don't add space if both chars are alphanumeric (word continuation)
+                else if (lastChar && firstChar && 
+                        lastChar.match(/[a-zA-Z0-9]/) && firstChar.match(/[a-zA-Z0-9]/)) {
+                  separator = ''
+                }
+                // Add space for all other cases (punctuation, etc.)
                 else {
                   separator = ' '
                 }

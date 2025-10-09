@@ -21,7 +21,6 @@ if (existsSync(rootEnvPath)) {
 
 import { Agent } from "@mastra/core";
 import { anthropic } from "@ai-sdk/anthropic";
-import { muxAnalyticsTool, muxErrorsTool, muxVideoViewsTool } from '../tools/mux-analytics.js';
 
 // Import the TTS analytics report tool directly
 async function createTTSAnalyticsReportTool() {
@@ -65,9 +64,9 @@ async function createTTSAnalyticsReportTool() {
             timeframe: z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for analysis period").optional(),
             includeAssetList: z.boolean().describe("Whether to include asset list in the report").optional(),
         }),
-        execute: async ({ context }) => {
+        execute: async ({ context: _context }) => {
             try {
-                const { timeframe, includeAssetList } = context as { timeframe?: number[]; includeAssetList?: boolean };
+                // const { timeframe, includeAssetList } = context as { timeframe?: number[]; includeAssetList?: boolean };
                 
                 // Create a comprehensive analytics report text
                 const analyticsReportText = `Streaming Analytics Audio Report for the Last 24 Hours:
@@ -198,28 +197,39 @@ async function testDirectTTSAudioGeneration() {
         
         // Test the TTS tool directly
         console.log('\n=== Direct TTS Tool Test ===');
-        const ttsResult = await ttsAnalyticsReportTool.execute({ context: { includeAssetList: true } });
+        if (!ttsAnalyticsReportTool?.execute) {
+            console.log('❌ TTS tool not available');
+            return {
+                success: false,
+                error: 'TTS tool not available'
+            };
+        }
         
-        if (ttsResult.success) {
+        const ttsResult = await ttsAnalyticsReportTool.execute({ 
+            context: { includeAssetList: true },
+            runtimeContext: {} as any
+        });
+        
+        if ((ttsResult as any).success) {
             console.log('✅ TTS tool executed successfully');
-            console.log(`Audio file: ${ttsResult.localAudioFile}`);
-            console.log(`Word count: ${ttsResult.wordCount}`);
-            console.log(`Player URL: ${ttsResult.playerUrl}`);
+            console.log(`Audio file: ${(ttsResult as any).localAudioFile}`);
+            console.log(`Word count: ${(ttsResult as any).wordCount}`);
+            console.log(`Player URL: ${(ttsResult as any).playerUrl}`);
             
             // Check if file exists
             const fs = await import('fs');
-            if (fs.existsSync(ttsResult.localAudioFile)) {
-                const stats = fs.statSync(ttsResult.localAudioFile);
+            if (fs.existsSync((ttsResult as any).localAudioFile)) {
+                const stats = fs.statSync((ttsResult as any).localAudioFile);
                 console.log(`File size: ${stats.size} bytes`);
                 console.log('✅ Audio file created successfully');
             } else {
                 console.log('❌ Audio file not found');
             }
         } else {
-            console.log('❌ TTS tool failed:', ttsResult.error);
+            console.log('❌ TTS tool failed:', (ttsResult as any).error);
         }
         
-        if (qualityScore >= 4 && ttsResult.success) {
+        if (qualityScore >= 4 && (ttsResult as any).success) {
             console.log('\n🎉 Excellent! Audio report generation working perfectly');
         } else if (qualityScore >= 3) {
             console.log('\n✅ Good! Audio report generation mostly working');
@@ -269,10 +279,10 @@ testDirectTTSAudioGeneration()
             console.log(`Quality Score: ${result.qualityScore}/5`);
             console.log(`Word Count: ${result.wordCount} (TTS suitable: ${result.isGoodForTTS ? 'YES' : 'NO'})`);
             
-            if (result.ttsResult.success) {
-                console.log(`\n🎵 Audio file created: ${result.ttsResult.localAudioFile}`);
-                console.log(`📁 File size: ${result.ttsResult.fileSize || 'unknown'} bytes`);
-                console.log(`🎧 Player URL: ${result.ttsResult.playerUrl}`);
+            if ((result.ttsResult as any).success) {
+                console.log(`\n🎵 Audio file created: ${(result.ttsResult as any).localAudioFile}`);
+                console.log(`📁 File size: ${(result.ttsResult as any).fileSize || 'unknown'} bytes`);
+                console.log(`🎧 Player URL: ${(result.ttsResult as any).playerUrl}`);
             }
             
             if (result.hasAudioMention && result.has24HourMention && result.hasPlatformData && result.hasViewCounts) {

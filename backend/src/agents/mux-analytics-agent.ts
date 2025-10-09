@@ -81,58 +81,6 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
     return Buffer.from(ab);
 }
 
-/**
- * Create signed playback token for Mux asset
- */
-async function createSignedPlaybackToken(assetId: string): Promise<string> {
-    const muxTokenId = process.env.MUX_TOKEN_ID;
-    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
-    
-    if (!muxTokenId || !muxTokenSecret) {
-        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
-    }
-    
-    const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
-    
-    // Create a playback ID directly
-    console.debug(`[createSignedPlaybackToken] Creating playback ID for asset ${assetId}...`);
-    
-    const createPlaybackIdResponse = await fetch(`https://api.mux.com/video/v1/assets/${assetId}/playback-ids`, {
-        method: 'POST',
-        headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            policy: 'public' // or 'signed' if you want signed playback
-        })
-    } as any);
-    
-    if (!createPlaybackIdResponse.ok) {
-        throw new Error(`Failed to create playback ID: ${createPlaybackIdResponse.status}`);
-    }
-    
-    const playbackIdData = await createPlaybackIdResponse.json() as any;
-    const playbackId = playbackIdData.data?.id;
-    
-    if (!playbackId) {
-        throw new Error('Failed to create playback ID');
-    }
-    
-    console.debug(`[createSignedPlaybackToken] Created playback ID: ${playbackId}`);
-    
-    // Create signed token
-    const tokenPayload = {
-        type: 'video',
-        playback_id: playbackId,
-        expiration: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours from now
-    };
-    
-    // For now, return the playback ID as the "token" since we're using public playback
-    // In a production environment, you would generate a proper JWT token using the signing key
-    console.debug(`[createSignedPlaybackToken] Using playback ID as token for public access: ${playbackId}`);
-    return playbackId;
-}
 
 /**
  * Wait for asset to be created from upload

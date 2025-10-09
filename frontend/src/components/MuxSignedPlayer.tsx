@@ -14,19 +14,25 @@ export default function MuxSignedPlayer({
   assetId: assetIdProp,
   assetID,
   assetid,
+  playbackId: playbackIdProp,
+  playbackID,
+  playbackid,
   type = 'video',
   className,
 }: {
   assetId?: string
   assetID?: string
   assetid?: string
+  playbackId?: string
+  playbackID?: string
+  playbackid?: string
   type?: 'video'
   className?: string
 }) {
   const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || '00ixOU3x6YI02DXIzeQ00wEzTwAHyUojsiewp7fC4FNeNw'
   const { updateAnalytics } = useMuxAnalytics()
 
-  // Allow URL query param override (?assetid=..., ?assetId=..., or ?assetID=...)
+  // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?playbackId=..., etc.)
   const assetIdFromQuery = useMemo(() => {
     if (typeof window === 'undefined') return undefined
     try {
@@ -39,7 +45,20 @@ export default function MuxSignedPlayer({
     }
   }, [])
 
+  const playbackIdFromQuery = useMemo(() => {
+    if (typeof window === 'undefined') return undefined
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const raw = sp.get('playbackId') || sp.get('playbackID') || sp.get('playbackid')
+      const val = raw?.trim()
+      return val ? val : undefined
+    } catch {
+      return undefined
+    }
+  }, [])
+
   const assetId = assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
+  const playbackId = playbackIdProp || playbackID || playbackid || playbackIdFromQuery
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -48,7 +67,11 @@ export default function MuxSignedPlayer({
     | { status: 'error'; message: string }
   >({ status: 'idle' })
 
-  const body = useMemo(() => ({ assetId, type }), [assetId, type])
+  const body = useMemo(() => ({ 
+    ...(assetId && { assetId }), 
+    ...(playbackId && { playbackId }), 
+    type 
+  }), [assetId, playbackId, type])
   const playerRef = useRef<any>(null)
 
   // Setup global error handler for WritableStream errors
@@ -160,7 +183,8 @@ export default function MuxSignedPlayer({
         setState({ status: 'ready', playbackId, token, thumbnailToken, width, height })
         
         // Initialize analytics data
-        updateAnalytics(assetId, {
+        const analyticsId = assetId || playbackId || 'unknown'
+        updateAnalytics(analyticsId, {
           playbackId,
           videoDuration: undefined,
           currentTime: 0,
@@ -188,10 +212,10 @@ export default function MuxSignedPlayer({
     }
   }, [keyServerUrl, body])
 
-  if (!assetId) {
+  if (!assetId && !playbackId) {
     return (
       <div className={className}>
-        <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId configured.</div>
+        <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId or playbackId configured.</div>
       </div>
     )
   }
@@ -240,29 +264,35 @@ export default function MuxSignedPlayer({
           autoPlay={false}
           onLoadStart={() => {
             const loadStartTime = Date.now()
-            updateAnalytics(assetId, { loadTime: loadStartTime })
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, { loadTime: loadStartTime })
           }}
           onLoadedData={() => {
             const firstFrameTime = Date.now()
-            updateAnalytics(assetId, { firstFrameTime })
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, { firstFrameTime })
           }}
           onPlay={() => {
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               playEvents: 1
             })
           }}
           onPause={() => {
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               pauseEvents: 1
             })
           }}
           onSeeking={() => {
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               seekingEvents: 1
             })
           }}
           onWaiting={() => {
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               bufferingEvents: 1
             })
           }}
@@ -272,7 +302,8 @@ export default function MuxSignedPlayer({
             const volume = event.target?.volume || 0
             const playbackRate = event.target?.playbackRate || 1
             
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               currentTime,
               videoDuration: duration,
               volume,
@@ -290,7 +321,8 @@ export default function MuxSignedPlayer({
               }
             }
             
-            updateAnalytics(assetId, {
+            const analyticsId = assetId || playbackId || 'unknown'
+            updateAnalytics(analyticsId, {
               errorEvents: 1
             })
             
