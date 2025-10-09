@@ -222,23 +222,26 @@ describe('Mux MCP Integration Tests', () => {
     it('should fetch analytics data via MCP', async () => {
       try {
         // Test the muxAnalyticsTool which uses MCP internally
-        const result = await muxAnalyticsTool.execute({ 
+        if (!muxAnalyticsTool.execute) {
+          throw new Error('muxAnalyticsTool.execute is not available');
+        }
+        const result = await (muxAnalyticsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000] // Valid Mux API timeframe
-          } 
+          }
         });
         
         expect(result).toBeDefined();
-        expect(result.success).toBeDefined();
+        expect((result as any).success).toBeDefined();
         
-        if (result.success) {
-          expect(result.metrics).toBeDefined();
-          expect(result.timeRange).toBeDefined();
-          expect(result.analysis).toBeDefined();
+        if ((result as any).success) {
+          expect((result as any).metrics).toBeDefined();
+          expect((result as any).timeRange).toBeDefined();
+          expect((result as any).analysis).toBeDefined();
           console.log('✅ Analytics data fetched successfully via MCP');
-          console.log('Metrics keys:', Object.keys(result.metrics || {}));
+          console.log('Metrics keys:', Object.keys((result as any).metrics || {}));
         } else {
-          console.warn('⚠️  Analytics fetch failed:', result.error || result.message);
+          console.warn('⚠️  Analytics fetch failed:', (result as any).error || (result as any).message);
         }
       } catch (error) {
         console.warn('⚠️  Analytics data fetch failed:', error);
@@ -248,23 +251,26 @@ describe('Mux MCP Integration Tests', () => {
 
     it('should fetch video views data via MCP', async () => {
       try {
-        const result = await muxVideoViewsTool.execute({ 
+        if (!muxVideoViewsTool.execute) {
+          throw new Error('muxVideoViewsTool.execute is not available');
+        }
+        const result = await (muxVideoViewsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000],
             limit: 10
-          } 
+          }
         });
         
         expect(result).toBeDefined();
-        expect(result.success).toBeDefined();
+        expect((result as any).success).toBeDefined();
         
-        if (result.success) {
-          expect(result.views).toBeDefined();
-          expect(result.timeRange).toBeDefined();
+        if ((result as any).success) {
+          expect((result as any).views).toBeDefined();
+          expect((result as any).timeRange).toBeDefined();
           console.log('✅ Video views data fetched successfully via MCP');
-          console.log('Views count:', result.totalViews);
+          console.log('Views count:', (result as any).totalViews);
         } else {
-          console.warn('⚠️  Video views fetch failed:', result.error || result.message);
+          console.warn('⚠️  Video views fetch failed:', (result as any).error || (result as any).message);
         }
       } catch (error) {
         console.warn('⚠️  Video views data fetch failed:', error);
@@ -274,22 +280,25 @@ describe('Mux MCP Integration Tests', () => {
 
     it('should fetch error data via MCP', async () => {
       try {
-        const result = await muxErrorsTool.execute({ 
+        if (!muxErrorsTool.execute) {
+          throw new Error('muxErrorsTool.execute is not available');
+        }
+        const result = await (muxErrorsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000]
-          } 
+          }
         });
         
         expect(result).toBeDefined();
-        expect(result.success).toBeDefined();
+        expect((result as any).success).toBeDefined();
         
-        if (result.success) {
-          expect(result.errors).toBeDefined();
-          expect(result.timeRange).toBeDefined();
+        if ((result as any).success) {
+          expect((result as any).errors).toBeDefined();
+          expect((result as any).timeRange).toBeDefined();
           console.log('✅ Error data fetched successfully via MCP');
-          console.log('Total errors:', result.totalErrors);
+          console.log('Total errors:', (result as any).totalErrors);
         } else {
-          console.warn('⚠️  Error data fetch failed:', result.error || result.message);
+          console.warn('⚠️  Error data fetch failed:', (result as any).error || (result as any).message);
         }
       } catch (error) {
         console.warn('⚠️  Error data fetch failed:', error);
@@ -299,22 +308,25 @@ describe('Mux MCP Integration Tests', () => {
 
     it('should fetch assets list via MCP', async () => {
       try {
-        const result = await muxAssetsListTool.execute({ 
+        if (!muxAssetsListTool.execute) {
+          throw new Error('muxAssetsListTool.execute is not available');
+        }
+        const result = await (muxAssetsListTool as any).execute({ 
           context: { 
             limit: 5
-          } 
+          }
         });
         
         expect(result).toBeDefined();
-        expect(result.success).toBeDefined();
+        expect((result as any).success).toBeDefined();
         
-        if (result.success) {
-          expect(result.assets).toBeDefined();
-          expect(Array.isArray(result.assets)).toBe(true);
+        if ((result as any).success) {
+          expect((result as any).assets).toBeDefined();
+          expect(Array.isArray((result as any).assets)).toBe(true);
           console.log('✅ Assets list fetched successfully via MCP');
-          console.log('Assets count:', result.count);
+          console.log('Assets count:', (result as any).count);
         } else {
-          console.warn('⚠️  Assets list fetch failed:', result.error || result.message);
+          console.warn('⚠️  Assets list fetch failed:', (result as any).error || (result as any).message);
         }
       } catch (error) {
         console.warn('⚠️  Assets list fetch failed:', error);
@@ -399,19 +411,22 @@ describe('Mux MCP Integration Tests', () => {
       process.env.USE_MUX_MCP = 'false';
       
       try {
-        const result = await muxAnalyticsTool.execute({ 
+        if (!muxAnalyticsTool.execute) {
+          throw new Error('muxAnalyticsTool.execute is not available');
+        }
+        const result = await (muxAnalyticsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000]
-          } 
+          }
         });
         
         expect(result).toBeDefined();
-        expect(result.success).toBeDefined();
+        expect((result as any).success).toBeDefined();
         
-        if (result.success) {
+        if ((result as any).success) {
           console.log('✅ Fallback to REST API worked correctly');
         } else {
-          console.log('⚠️  Both MCP and REST API failed:', result.error);
+          console.log('⚠️  Both MCP and REST API failed:', (result as any).error);
         }
       } catch (error) {
         console.warn('⚠️  Fallback test failed:', error);
@@ -454,41 +469,53 @@ describe('Mux MCP Integration Tests', () => {
     it('should complete full analytics workflow via MCP', async () => {
       try {
         // Step 1: Fetch analytics data
-        const analyticsResult = await muxAnalyticsTool.execute({ 
+        if (!muxAnalyticsTool.execute) {
+          throw new Error('muxAnalyticsTool.execute is not available');
+        }
+        const analyticsResult = await (muxAnalyticsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000]
-          } 
+          }
         });
         
         expect(analyticsResult).toBeDefined();
         console.log('Step 1: Analytics data fetched');
         
         // Step 2: Fetch video views
-        const viewsResult = await muxVideoViewsTool.execute({ 
+        if (!muxVideoViewsTool.execute) {
+          throw new Error('muxVideoViewsTool.execute is not available');
+        }
+        const viewsResult = await (muxVideoViewsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000],
             limit: 5
-          } 
+          }
         });
         
         expect(viewsResult).toBeDefined();
         console.log('Step 2: Video views fetched');
         
         // Step 3: Fetch error data
-        const errorsResult = await muxErrorsTool.execute({ 
+        if (!muxErrorsTool.execute) {
+          throw new Error('muxErrorsTool.execute is not available');
+        }
+        const errorsResult = await (muxErrorsTool as any).execute({ 
           context: { 
             timeframe: [1751241600, 1751328000]
-          } 
+          }
         });
         
         expect(errorsResult).toBeDefined();
         console.log('Step 3: Error data fetched');
         
         // Step 4: Fetch assets list
-        const assetsResult = await muxAssetsListTool.execute({ 
+        if (!muxAssetsListTool.execute) {
+          throw new Error('muxAssetsListTool.execute is not available');
+        }
+        const assetsResult = await (muxAssetsListTool as any).execute({ 
           context: { 
             limit: 3
-          } 
+          }
         });
         
         expect(assetsResult).toBeDefined();
@@ -496,10 +523,10 @@ describe('Mux MCP Integration Tests', () => {
         
         // Verify all steps completed successfully
         const allSuccessful = [
-          analyticsResult.success,
-          viewsResult.success,
-          errorsResult.success,
-          assetsResult.success
+          (analyticsResult as any).success,
+          (viewsResult as any).success,
+          (errorsResult as any).success,
+          (assetsResult as any).success
         ].every(success => success === true);
         
         if (allSuccessful) {
@@ -525,9 +552,9 @@ describe('Mux MCP Integration Tests', () => {
         
         // Fetch data from multiple tools with same timeframe
         const [analyticsResult, viewsResult, errorsResult] = await Promise.allSettled([
-          muxAnalyticsTool.execute({ context: { timeframe } }),
-          muxVideoViewsTool.execute({ context: { timeframe, limit: 10 } }),
-          muxErrorsTool.execute({ context: { timeframe } })
+          (muxAnalyticsTool as any).execute({ context: { timeframe } }),
+          (muxVideoViewsTool as any).execute({ context: { timeframe, limit: 10 } }),
+          (muxErrorsTool as any).execute({ context: { timeframe } })
         ]);
         
         // Check that all requests completed (successfully or with errors)
@@ -550,11 +577,14 @@ describe('Mux MCP Integration Tests', () => {
   describe('MCP Performance and Reliability Tests', () => {
     it('should handle concurrent MCP requests', async () => {
       try {
+        if (!muxAnalyticsTool.execute) {
+          throw new Error('muxAnalyticsTool.execute is not available');
+        }
         const concurrentRequests = Array.from({ length: 3 }, (_, i) => 
-          muxAnalyticsTool.execute({ 
+          (muxAnalyticsTool as any).execute({ 
             context: { 
               timeframe: [1751241600, 1751328000 + (i * 3600)] // Different timeframes
-            } 
+            }
           })
         );
         
