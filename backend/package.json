@@ -20,7 +20,9 @@
     "test:agent": "npm run build && npx tsx src/scripts/test-weather-agent.ts",
     "test:claude": "npm run build && npx tsx src/scripts/test-claude.ts",
     "test:stt": "npm run build && npx tsx src/scripts/test-stt.ts",
-    "test:tts": "npm run build && npx tsx src/scripts/test-tts.ts"
+    "test:tts": "npm run build && npx tsx src/scripts/test-tts.ts",
+    "test:mcp": "vitest run src/test/mux-mcp-integration.test.ts",
+    "test:mcp:watch": "vitest src/test/mux-mcp-integration.test.ts"
   },
   "engines": {
     "node": ">=24.0.0"
