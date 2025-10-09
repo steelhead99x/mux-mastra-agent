@@ -28,6 +28,7 @@ import { Mastra } from '@mastra/core';
 import express from 'express';
 import cors from 'cors';
 import { muxAnalyticsAgent } from './agents/mux-analytics-agent.js';
+import { mediaVaultAgent } from './agents/media-vault-agent.js';
 import { resolve, join } from 'path';
 
 // Set telemetry flag to suppress warnings when not using Mastra server environment
@@ -37,6 +38,8 @@ const mastra = new Mastra({
   agents: { 
     // Register with ID 'mux-analytics' for the new agent
     'mux-analytics': muxAnalyticsAgent,
+    // Register media vault agent
+    'media-vault': mediaVaultAgent,
     // Legacy support: also register as 'video professional streaming media at paramount plus' for backwards compatibility
     'video professional streaming media at paramount plus': muxAnalyticsAgent
   },
@@ -163,6 +166,7 @@ app.get('/debug/mcp', async (_req, res) => {
 app.get('/api/agents', (_req, res) => {
   res.json([
     { id: 'mux-analytics', name: 'Mux Analytics Agent' },
+    { id: 'media-vault', name: 'Media Vault Agent' },
     { id: 'video professional streaming media at paramount plus', name: 'Paramount Plus Video Professional Streaming Media (legacy)' }
   ]);
 });
@@ -171,6 +175,8 @@ app.get('/api/agents/:agentId', (req, res) => {
   const agentId = req.params.agentId;
   if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
     res.json({ id: agentId, name: 'Mux Analytics Agent' });
+  } else if (agentId === 'media-vault') {
+    res.json({ id: agentId, name: 'Media Vault Agent' });
   } else {
     res.status(404).json({ error: 'Agent not found' });
   }
@@ -180,7 +186,14 @@ app.get('/api/agents/:agentId', (req, res) => {
 app.post('/api/agents/:agentId/invoke', async (req, res) => {
   try {
     const agentId = req.params.agentId;
-    if (agentId !== 'mux-analytics' && agentId !== 'video professional streaming media at paramount plus') {
+    
+    // Determine which agent to use
+    let agent;
+    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+      agent = muxAnalyticsAgent;
+    } else if (agentId === 'media-vault') {
+      agent = mediaVaultAgent;
+    } else {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
@@ -199,7 +212,7 @@ app.post('/api/agents/:agentId/invoke', async (req, res) => {
     console.log(`[invoke] Received request for agent: ${agentId}`);
     console.log(`[invoke] Messages:`, messages);
 
-    const result = await muxAnalyticsAgent.text(messages);
+    const result = await agent.text(messages);
     res.json({ text: result.text });
     
   } catch (error) {
@@ -214,7 +227,14 @@ app.post('/api/agents/:agentId/invoke', async (req, res) => {
 app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
   try {
     const agentId = req.params.agentId;
-    if (agentId !== 'mux-analytics' && agentId !== 'video professional streaming media at paramount plus') {
+    
+    // Determine which agent to use
+    let agent;
+    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+      agent = muxAnalyticsAgent;
+    } else if (agentId === 'media-vault') {
+      agent = mediaVaultAgent;
+    } else {
       return res.status(404).json({ error: 'Agent not found' });
     }
 
@@ -242,7 +262,7 @@ app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    const stream = await muxAnalyticsAgent.streamVNext(messages);
+    const stream = await agent.streamVNext(messages);
     
     // Stream the response back to the client
     if (stream.textStream) {
@@ -272,6 +292,17 @@ app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
 app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
   try {
     const agentId = req.params.agentId;
+    
+    // Determine which agent to use
+    let agent;
+    if (agentId === 'mux-analytics' || agentId === 'video professional streaming media at paramount plus') {
+      agent = muxAnalyticsAgent;
+    } else if (agentId === 'media-vault') {
+      agent = mediaVaultAgent;
+    } else {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    
     // Handle different message formats from the frontend
     let messages;
     if (Array.isArray(req.body?.messages)) {
@@ -297,7 +328,7 @@ app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
     console.log(`[streamVNext] Processed messages:`, messages);
 
     // Call the agent with proper streaming
-    const stream = await muxAnalyticsAgent.streamVNext(messages);
+    const stream = await agent.streamVNext(messages);
 
     // Handle the streaming response properly
     if (stream.textStream) {

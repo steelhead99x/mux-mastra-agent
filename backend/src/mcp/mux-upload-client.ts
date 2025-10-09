@@ -602,7 +602,6 @@ class MuxMCPClient {
                             }
                             
                             // Additional safety: Remove any other potentially problematic nested objects
-                            const problematicKeys = ['overlay_settings', 'text_track_settings', 'audio_track_settings', 'video_settings'];
                             problematicKeys.forEach(key => {
                                 if (filteredCtx[key]) {
                                     console.debug(`[invoke_api_endpoint] Removing potentially problematic key: ${key}`);

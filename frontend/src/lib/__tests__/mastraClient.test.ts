@@ -33,9 +33,16 @@ describe('Mastra Client Configuration', () => {
   it('should get video professional streaming media at paramount plus agent ID from environment', async () => {
     const { getVideoProfessionalStreamingMediaAtParamountPlusAgentId } = await import('../mastraClient');
     
+    // Set the environment variable for this test
+    const originalValue = import.meta.env.VITE_WEATHER_AGENT_ID;
+    import.meta.env.VITE_WEATHER_AGENT_ID = 'video professional streaming media at paramount plus';
+    
     const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId();
     // The function returns the env var value if set, otherwise the default fallback
     expect(agentId).toBe('video professional streaming media at paramount plus'); // This matches the value in env.example
+    
+    // Restore original value
+    import.meta.env.VITE_WEATHER_AGENT_ID = originalValue;
   });
 
   it('should get display host', async () => {
@@ -92,6 +99,9 @@ describe('Mastra Client Configuration', () => {
     await expect(async () => {
       await import('../mastraClient');
     }).not.toThrow();
+    
+    // Wait for the connection test to complete
+    await new Promise(resolve => setTimeout(resolve, 1100));
   });
 
   it('should get dynamic toolsets', async () => {

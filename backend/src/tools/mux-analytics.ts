@@ -108,11 +108,11 @@ async function muxDataRequest(endpoint: string, params?: Record<string, any>): P
                     let endpointName: string;
                     
                     if (endpoint === '/errors') {
-                        endpointName = 'errors';
+                        endpointName = 'list_data_errors';
                     } else if (endpoint === '/video-views') {
-                        endpointName = 'video-views';
+                        endpointName = 'list_data_video_views';
                     } else if (endpoint === '/metrics/overall') {
-                        endpointName = 'metrics_overall';
+                        endpointName = 'get_overall_values_data_metrics';
                     } else if (endpoint.includes('/breakdown')) {
                         // Convert breakdown endpoints to MCP format
                         endpointName = endpoint.replace(/^\//, '').replace(/\//g, '_');
