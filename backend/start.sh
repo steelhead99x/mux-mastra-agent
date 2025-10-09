@@ -32,6 +32,12 @@ if [ "$NODE_ENV" = "production" ]; then
     exec node dist/index.js
 else
     echo "Running in DEVELOPMENT mode"
-    exec npm run dev
+    echo "ERROR: Development mode not supported in Docker container!"
+    echo "Source files are not available in the container."
+    echo "Please use production mode or run locally for development."
+    echo "Current NODE_ENV: $NODE_ENV"
+    echo "Contents of current directory:"
+    ls -la
+    exit 1
 fi
 

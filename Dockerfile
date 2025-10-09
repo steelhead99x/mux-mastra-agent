@@ -126,10 +126,14 @@ USER weatheruser
 
 EXPOSE 3001
 
+# Ensure production environment
 ENV NODE_ENV=production
 ENV PORT=3001
 
 WORKDIR /app/backend
+
+# Verify the environment is set correctly
+RUN echo "NODE_ENV is set to: $NODE_ENV"
 
 # Use the startup script for better error handling
 CMD ["./start.sh"]
