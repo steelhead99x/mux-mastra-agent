@@ -428,6 +428,13 @@ function buildSystemPrompt() {
         '- Review detailed video view data and user engagement',
         '- Generate audio reports summarizing findings (under 1000 words)',
         '',
+        'AUDIO SUMMARY REQUIREMENT:',
+        '- ALWAYS generate an AI audio summary when analyzing data over any time period',
+        '- For ANY query involving time ranges (last 24 hours, last 7 days, specific dates, etc.), automatically use the ttsAnalyticsReportTool',
+        '- Include the audio summary inline with your response, providing both text analysis AND audio playback',
+        '- The audio summary should be concise (under 1000 words) and highlight key findings',
+        '- Always mention the time period being analyzed in the audio summary',
+        '',
         'ANALYSIS APPROACH:',
         '- Focus on Paramount Plus streaming KPIs: error rates, rebuffering, startup time, playback failures',
         '- Provide specific recommendations for streaming optimization',
@@ -440,12 +447,13 @@ function buildSystemPrompt() {
         '- Use clear language appropriate for engineering teams',
         '- Provide actionable insights and recommendations',
         '- Focus on measurable improvements for Paramount Plus streaming',
+        '- Always include audio summaries for time-based data analysis',
     ].join('\n');
 }
 
 export const muxAnalyticsAgent: any = new Agent({
     name: 'muxAnalyticsAgent',
-    description: 'Paramount Plus streaming video engineer that analyzes Mux video data, identifies issues, and recommends optimizations. Generates audio reports summarizing findings.',
+    description: 'Paramount Plus streaming video engineer that analyzes Mux video data, identifies issues, and recommends optimizations. Automatically generates AI audio summaries for all time-based data queries.',
     instructions: buildSystemPrompt(),
     model: anthropic(process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'),
     tools: {

@@ -33,14 +33,77 @@ const MUX_API_VALID_START = 1751241600; // Jun 30 2025
 const MUX_API_VALID_END = 1760100000;   // Oct 10 2025 (extended to include recent data)
 
 /**
+ * Get current time as Unix timestamp
+ */
+export function getCurrentTime(): number {
+    return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * Parse relative time expressions like "last 7 days", "last 24 hours", etc.
+ * Returns [startTime, endTime] as Unix timestamps
+ */
+export function parseRelativeTimeframe(timeframe: string): [number, number] {
+    const now = getCurrentTime();
+    const lowerTimeframe = timeframe.toLowerCase().trim();
+    
+    // Handle "last X days" patterns
+    const daysMatch = lowerTimeframe.match(/last\s+(\d+)\s+days?/);
+    if (daysMatch) {
+        const days = parseInt(daysMatch[1], 10);
+        const startTime = now - (days * 24 * 60 * 60);
+        return [startTime, now];
+    }
+    
+    // Handle "last X hours" patterns
+    const hoursMatch = lowerTimeframe.match(/last\s+(\d+)\s+hours?/);
+    if (hoursMatch) {
+        const hours = parseInt(hoursMatch[1], 10);
+        const startTime = now - (hours * 60 * 60);
+        return [startTime, now];
+    }
+    
+    // Handle "last X minutes" patterns
+    const minutesMatch = lowerTimeframe.match(/last\s+(\d+)\s+minutes?/);
+    if (minutesMatch) {
+        const minutes = parseInt(minutesMatch[1], 10);
+        const startTime = now - (minutes * 60);
+        return [startTime, now];
+    }
+    
+    // Handle "last X weeks" patterns
+    const weeksMatch = lowerTimeframe.match(/last\s+(\d+)\s+weeks?/);
+    if (weeksMatch) {
+        const weeks = parseInt(weeksMatch[1], 10);
+        const startTime = now - (weeks * 7 * 24 * 60 * 60);
+        return [startTime, now];
+    }
+    
+    // Handle "last X months" patterns
+    const monthsMatch = lowerTimeframe.match(/last\s+(\d+)\s+months?/);
+    if (monthsMatch) {
+        const months = parseInt(monthsMatch[1], 10);
+        // Approximate months as 30 days
+        const startTime = now - (months * 30 * 24 * 60 * 60);
+        return [startTime, now];
+    }
+    
+    // Default to last 24 hours if no pattern matches
+    console.warn(`Could not parse relative timeframe "${timeframe}", defaulting to last 24 hours`);
+    return [now - (24 * 60 * 60), now];
+}
+
+/**
  * Generate valid timestamps within Mux API constraints
  * If requested timeframe is outside valid range, adjust to valid range
+ * Now uses current time as the reference point for relative timeframes
  */
 function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [number, number] {
-    // Default to last 24 hours within valid range
-    // Use the end of the valid range as our reference point since current time is outside valid range
-    const defaultEnd = MUX_API_VALID_END;
-    const defaultStart = Math.max(MUX_API_VALID_START, defaultEnd - (24 * 60 * 60));
+    const now = getCurrentTime();
+    
+    // Default to last 24 hours from current time
+    const defaultEnd = now;
+    const defaultStart = now - (24 * 60 * 60);
     
     let start = requestedStart || defaultStart;
     let end = requestedEnd || defaultEnd;
@@ -160,37 +223,44 @@ function analyzeMetrics(data: any): {
  */
 export const muxAnalyticsTool = createTool({
     id: "mux-analytics",
-    description: "Fetch Mux video streaming analytics and metrics for a specific time range using MCP tools. Returns overall performance data including views, errors, rebuffering, and startup times. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch Mux video streaming analytics and metrics for a specific time range using MCP tools. Returns overall performance data including views, errors, rebuffering, and startup times. Supports relative time expressions like 'last 7 days', 'last 24 hours' or Unix timestamp arrays [start, end]. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
-            z.array(z.number()).length(2),
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for the time range to analyze"),
             z.array(z.string()).length(2).transform(arr => arr.map(s => {
                 const num = parseInt(s, 10);
                 return isNaN(num) ? undefined : num;
-            }))
-        ]).describe("Unix timestamp array [start, end] for the time range to analyze").optional(),
+            })).describe("String timestamp array [start, end] that will be converted to numbers")
+        ]).optional(),
         filters: z.array(z.string()).describe("Optional filters like 'operating_system:iOS' or 'country:US'").optional(),
     }),
     execute: async ({ context }) => {
         let { timeframe, filters } = context as { timeframe?: any; filters?: string[] };
         
         try {
-            // Parse timeframe if it's a string or contains invalid values
+            // Parse timeframe - handle both relative expressions and Unix timestamps
             let startTime: number | undefined;
             let endTime: number | undefined;
             
-            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
-                const parseTimestamp = (val: any): number | undefined => {
-                    if (typeof val === 'number') return val;
-                    if (typeof val === 'string') {
-                        const parsed = parseInt(val, 10);
-                        return isNaN(parsed) ? undefined : parsed;
-                    }
-                    return undefined;
-                };
-                
-                startTime = parseTimestamp(timeframe[0]);
-                endTime = parseTimestamp(timeframe[1]);
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    // Handle relative time expressions like "last 7 days", "last 24 hours"
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe) && timeframe.length >= 2) {
+                    // Handle Unix timestamp arrays
+                    const parseTimestamp = (val: any): number | undefined => {
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'string') {
+                            const parsed = parseInt(val, 10);
+                            return isNaN(parsed) ? undefined : parsed;
+                        }
+                        return undefined;
+                    };
+                    
+                    startTime = parseTimestamp(timeframe[0]);
+                    endTime = parseTimestamp(timeframe[1]);
+                }
             }
             
             // Use valid timeframe within Mux API constraints
@@ -322,15 +392,16 @@ export const muxAssetsListTool = createTool({
  */
 export const muxVideoViewsTool = createTool({
     id: "mux-video-views",
-    description: "Fetch detailed video view data from Mux using MCP tools. Returns individual viewing sessions with metadata. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch detailed video view data from Mux using MCP tools. Returns individual viewing sessions with metadata. Supports relative time expressions like 'last 7 days', 'last 24 hours' or Unix timestamp arrays [start, end]. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
-            z.array(z.number()).length(2),
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end]"),
             z.array(z.string()).length(2).transform(arr => arr.map(s => {
                 const num = parseInt(s, 10);
                 return isNaN(num) ? undefined : num;
-            }))
-        ]).describe("Unix timestamp array [start, end]").optional(),
+            })).describe("String timestamp array [start, end] that will be converted to numbers")
+        ]).optional(),
         filters: z.array(z.string()).describe("Optional filters").optional(),
         limit: z.number().describe("Max number of views to return (default 25)").optional(),
     }),
@@ -338,22 +409,28 @@ export const muxVideoViewsTool = createTool({
         let { timeframe, filters, limit } = context as { timeframe?: any; filters?: string[]; limit?: number };
         
         try {
-            // Parse timeframe if it's a string or contains invalid values
+            // Parse timeframe - handle both relative expressions and Unix timestamps
             let startTime: number | undefined;
             let endTime: number | undefined;
             
-            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
-                const parseTimestamp = (val: any): number | undefined => {
-                    if (typeof val === 'number') return val;
-                    if (typeof val === 'string') {
-                        const parsed = parseInt(val, 10);
-                        return isNaN(parsed) ? undefined : parsed;
-                    }
-                    return undefined;
-                };
-                
-                startTime = parseTimestamp(timeframe[0]);
-                endTime = parseTimestamp(timeframe[1]);
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    // Handle relative time expressions like "last 7 days", "last 24 hours"
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe) && timeframe.length >= 2) {
+                    // Handle Unix timestamp arrays
+                    const parseTimestamp = (val: any): number | undefined => {
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'string') {
+                            const parsed = parseInt(val, 10);
+                            return isNaN(parsed) ? undefined : parsed;
+                        }
+                        return undefined;
+                    };
+                    
+                    startTime = parseTimestamp(timeframe[0]);
+                    endTime = parseTimestamp(timeframe[1]);
+                }
             }
             
             // Use valid timeframe within Mux API constraints
@@ -417,37 +494,44 @@ export const muxVideoViewsTool = createTool({
  */
 export const muxErrorsTool = createTool({
     id: "mux-errors",
-    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions using MCP tools. Returns error counts, percentages, and detailed error information. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions using MCP tools. Returns error counts, percentages, and detailed error information. Supports relative time expressions like 'last 7 days', 'last 24 hours' or Unix timestamp arrays [start, end]. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
-            z.array(z.number()).length(2),
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end]"),
             z.array(z.string()).length(2).transform(arr => arr.map(s => {
                 const num = parseInt(s, 10);
                 return isNaN(num) ? undefined : num;
-            }))
-        ]).describe("Unix timestamp array [start, end]").optional(),
+            })).describe("String timestamp array [start, end] that will be converted to numbers")
+        ]).optional(),
         filters: z.array(z.string()).describe("Optional filters like 'operating_system:iOS'").optional(),
     }),
     execute: async ({ context }) => {
         let { timeframe, filters } = context as { timeframe?: any; filters?: string[] };
         
         try {
-            // Parse timeframe if it's a string or contains invalid values
+            // Parse timeframe - handle both relative expressions and Unix timestamps
             let startTime: number | undefined;
             let endTime: number | undefined;
             
-            if (timeframe && Array.isArray(timeframe) && timeframe.length >= 2) {
-                const parseTimestamp = (val: any): number | undefined => {
-                    if (typeof val === 'number') return val;
-                    if (typeof val === 'string') {
-                        const parsed = parseInt(val, 10);
-                        return isNaN(parsed) ? undefined : parsed;
-                    }
-                    return undefined;
-                };
-                
-                startTime = parseTimestamp(timeframe[0]);
-                endTime = parseTimestamp(timeframe[1]);
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    // Handle relative time expressions like "last 7 days", "last 24 hours"
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe) && timeframe.length >= 2) {
+                    // Handle Unix timestamp arrays
+                    const parseTimestamp = (val: any): number | undefined => {
+                        if (typeof val === 'number') return val;
+                        if (typeof val === 'string') {
+                            const parsed = parseInt(val, 10);
+                            return isNaN(parsed) ? undefined : parsed;
+                        }
+                        return undefined;
+                    };
+                    
+                    startTime = parseTimestamp(timeframe[0]);
+                    endTime = parseTimestamp(timeframe[1]);
+                }
             }
             
             // Use valid timeframe within Mux API constraints

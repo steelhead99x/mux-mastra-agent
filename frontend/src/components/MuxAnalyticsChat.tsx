@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
+import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react'
 import { mastra, getMuxAnalyticsAgentId, getDisplayHost } from '../lib/mastraClient'
 import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
@@ -27,6 +27,190 @@ interface Message {
 interface MuxAnalyticsAgent {
   streamVNext: (message: string, options?: Record<string, unknown>) => Promise<any>
 }
+
+/**
+ * Memoized message component to prevent unnecessary re-renders
+ * @param message - The message to display
+ */
+const MessageComponent = memo(({ message }: { message: Message }) => {
+  // Function to detect and extract Mux video URLs
+  const detectMuxVideo = (content: string) => {
+    // More comprehensive pattern that handles various URL formats and spacing issues
+    const patterns = [
+      // Standard format with potential spacing issues
+      /https:\s*:\s*\/\s*\/\s*streamingportfolio\s*\.\s*com\s*\/\s*player\s*\?\s*assetId\s*=\s*([a-zA-Z0-9]+)/g,
+      // Clean standard format
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g,
+      // With additional parameters
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
+      // With playbackId parameter (alternative format)
+      /https:\/\/streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      // Handle URLs with line breaks or special characters
+      /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
+    ];
+    
+    for (const pattern of patterns) {
+      const matches = content.match(pattern);
+      if (matches) {
+        // Clean up the URL by removing any extra spaces and normalize
+        const cleanUrl = matches[0].replace(/\s+/g, '').trim();
+        console.log('[detectMuxVideo] Found URL:', cleanUrl);
+        return cleanUrl;
+      }
+    }
+    
+    return null;
+  }
+
+  // Function to detect and extract image URLs
+  const detectImageUrl = (content: string) => {
+    const imagePattern = /https:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?/gi;
+    const matches = content.match(imagePattern);
+    return matches ? matches[0] : null;
+  }
+
+  // Function to format text content
+  const formatTextContent = (text: string) => {
+    return text
+      .replace(/\n\s*\n/g, '\n\n') // Normalize multiple newlines
+      .replace(/[ \t]+/g, ' ')
+      .trim()
+  }
+
+  // Function to render content with URL detection
+  const renderContent = (content: string) => {
+    // Check for Mux video URL
+    const muxVideoUrl = detectMuxVideo(content)
+    
+    if (muxVideoUrl) {
+      // Extract assetId or playbackId from URL
+      const url = new URL(muxVideoUrl)
+      const assetId = url.searchParams.get('assetId')
+      const playbackId = url.searchParams.get('playbackId')
+      
+      // Use assetId if available, otherwise fallback to playbackId
+      const idToUse = assetId || playbackId
+      
+      if (idToUse) {
+        // Remove the video URL from the text content
+        const textContent = content.replace(muxVideoUrl, '').trim()
+        
+        return (
+          <div className="space-y-3">
+            {/* Render text content first */}
+            {textContent && (
+              <div className="prose prose-sm max-w-none chat-message">
+                <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
+                  {formatTextContent(textContent)}
+                </div>
+              </div>
+            )}
+            {/* Then render the video player */}
+            <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+              <MuxSignedPlayer 
+                assetId={assetId || undefined}
+                playbackId={playbackId || undefined}
+                className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
+              />
+              <div className="mt-3 p-3 rounded-lg border" style={{ 
+                backgroundColor: 'var(--overlay)', 
+                borderColor: 'var(--border)' 
+              }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
+                    🎧 Player URL
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(muxVideoUrl).then(() => {
+                        // Show temporary success feedback
+                        const button = event?.target as HTMLButtonElement;
+                        const originalText = button.textContent;
+                        button.textContent = 'Copied!';
+                        button.style.color = 'var(--success)';
+                        setTimeout(() => {
+                          button.textContent = originalText;
+                          button.style.color = '';
+                        }, 2000);
+                      }).catch(err => {
+                        console.error('Failed to copy URL:', err);
+                      });
+                    }}
+                    className="text-xs px-2 py-1 rounded border transition-colors hover:bg-opacity-80"
+                    style={{ 
+                      backgroundColor: 'var(--accent)', 
+                      borderColor: 'var(--accent)',
+                      color: 'var(--accent-fg)'
+                    }}
+                  >
+                    Copy URL
+                  </button>
+                </div>
+                <div className="text-xs break-all p-2 rounded border"
+                     style={{ 
+                       backgroundColor: 'var(--bg)', 
+                       borderColor: 'var(--border)',
+                       color: 'var(--fg-muted)'
+                     }}>
+                  {muxVideoUrl}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    }
+
+    // Check for image URL
+    const imageUrl = detectImageUrl(content)
+    if (imageUrl) {
+      const textContent = content.replace(imageUrl, '').trim()
+      return (
+        <div className="space-y-3">
+          {textContent && (
+            <div className="prose prose-sm max-w-none chat-message">
+              <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
+                {formatTextContent(textContent)}
+              </div>
+            </div>
+          )}
+          <div className="mt-3">
+            <img 
+              src={imageUrl} 
+              alt="Content image" 
+              className="max-w-full h-auto rounded-lg border"
+              style={{ borderColor: 'var(--border)' }}
+              onError={(e) => {
+                console.warn('Failed to load image:', imageUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    // Default text rendering
+    return (
+      <div className="prose prose-sm max-w-none chat-message">
+        <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
+          {formatTextContent(content)}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="whitespace-pre-wrap text-sm">
+      {renderContent(message.content)}
+      <div className="text-xs mt-1 opacity-70">
+        {new Date(message.timestamp).toLocaleTimeString()}
+      </div>
+    </div>
+  )
+})
+
+MessageComponent.displayName = 'MessageComponent'
 
 /**
  * Mux Analytics Chat Component
@@ -191,7 +375,7 @@ export default function MuxAnalyticsChat() {
         console.warn('[MuxAnalyticsChat] Direct API failed, trying MastraClient:', apiError)
         
         // Fallback to MastraClient
-        const response = await agent.streamVNext([{ role: 'user', content: trimmed }])
+        const response = await agent.streamVNext(trimmed)
         
         console.log('[MuxAnalyticsChat] Received MastraClient response:', response)
         
@@ -345,12 +529,7 @@ export default function MuxAnalyticsChat() {
                   color: message.role === 'user' ? 'white' : 'var(--fg)'
                 }}
               >
-                <div className="whitespace-pre-wrap text-sm">
-                  {message.content}
-                </div>
-                <div className="text-xs mt-1 opacity-70">
-                  {new Date(message.timestamp).toLocaleTimeString()}
-                </div>
+                <MessageComponent message={message} />
               </div>
             </div>
           ))

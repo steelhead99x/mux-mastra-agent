@@ -173,16 +173,29 @@ export class MuxDataMcpClient {
                         id,
                         description,
                         inputSchema: z.object({
-                            timeframe: z.array(z.string()).optional(),
+                            timeframe: z.union([
+                                z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+                                z.array(z.number()).length(2).describe("Unix timestamp array [start, end]"),
+                                z.array(z.string()).length(2).describe("String timestamp array [start, end]")
+                            ]).optional(),
                             filters: z.array(z.string()).optional(),
                             limit: z.number().optional(),
                             group_by: z.string().optional(),
                         }),
                         execute: async ({ context }) => {
+                            // Parse timeframe if it's a relative expression
+                            let processedContext = { ...context };
+                            if (context.timeframe && typeof context.timeframe === 'string') {
+                                // Import the parsing function from mux-analytics.ts
+                                const { parseRelativeTimeframe } = await import('../tools/mux-analytics.js');
+                                const [start, end] = parseRelativeTimeframe(context.timeframe);
+                                processedContext.timeframe = [start, end];
+                            }
+                            
                             return await tools['invoke_api_endpoint'].execute({
                                 context: {
                                     endpoint_name: endpoint,
-                                    args: context,
+                                    args: processedContext,
                                 },
                             });
                         },
