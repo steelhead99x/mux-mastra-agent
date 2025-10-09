@@ -139,33 +139,100 @@ export default function MuxAnalyticsChat() {
       setError(null)
       setStreamingContent('')
       
-      // Use Mastra's native streaming interface
-      const response = await agent.streamVNext([{ role: 'user', content: trimmed }])
+      console.log('[MuxAnalyticsChat] Sending message:', trimmed)
       
-      // Handle streaming response
-      if (response.textStream) {
-        let fullContent = ''
-        for await (const chunk of response.textStream) {
-          if (chunk && typeof chunk === 'string') {
-            fullContent += chunk
-            setStreamingContent(fullContent)
-          }
+      // Try direct API call first to get raw streaming response
+      try {
+        const response = await fetch('/api/agents/mux-analytics/streamVNext', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: trimmed }]
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
         }
-      } else if (response.text) {
-        // Handle non-streaming response
-        const textContent = typeof response.text === 'function' ? await response.text() : response.text
-        setStreamingContent(textContent)
-      } else if (response.processDataStream) {
-        // Handle Mastra's processDataStream format
-        let fullContent = ''
-        await response.processDataStream({
-          onChunk: async (chunk: any) => {
-            if (chunk && chunk.content) {
-              fullContent += chunk.content
+
+        console.log('[MuxAnalyticsChat] Direct API response received, processing stream...')
+        
+        // Handle streaming response
+        const reader = response.body?.getReader()
+        if (reader) {
+          const decoder = new TextDecoder()
+          let fullContent = ''
+          
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              
+              const chunk = decoder.decode(value, { stream: true })
+              if (chunk) {
+                fullContent += chunk
+                setStreamingContent(fullContent)
+                console.log('[MuxAnalyticsChat] Streamed chunk:', chunk.length, 'chars')
+              }
+            }
+            console.log('[MuxAnalyticsChat] Final content length:', fullContent.length)
+          } finally {
+            reader.releaseLock()
+          }
+        } else {
+          // Fallback to text response
+          const textContent = await response.text()
+          setStreamingContent(textContent)
+          console.log('[MuxAnalyticsChat] Text content length:', textContent.length)
+        }
+      } catch (apiError) {
+        console.warn('[MuxAnalyticsChat] Direct API failed, trying MastraClient:', apiError)
+        
+        // Fallback to MastraClient
+        const response = await agent.streamVNext([{ role: 'user', content: trimmed }])
+        
+        console.log('[MuxAnalyticsChat] Received MastraClient response:', response)
+        
+        // Handle streaming response
+        if (response.textStream) {
+          console.log('[MuxAnalyticsChat] Processing textStream...')
+          let fullContent = ''
+          for await (const chunk of response.textStream) {
+            if (chunk && typeof chunk === 'string') {
+              fullContent += chunk
               setStreamingContent(fullContent)
+              console.log('[MuxAnalyticsChat] Streamed chunk:', chunk.length, 'chars')
             }
           }
-        })
+          console.log('[MuxAnalyticsChat] Final content length:', fullContent.length)
+        } else if (response.text) {
+          console.log('[MuxAnalyticsChat] Processing text response...')
+          // Handle non-streaming response
+          const textContent = typeof response.text === 'function' ? await response.text() : response.text
+          setStreamingContent(textContent)
+          console.log('[MuxAnalyticsChat] Text content length:', textContent.length)
+        } else if (response.processDataStream) {
+          console.log('[MuxAnalyticsChat] Processing processDataStream...')
+          // Handle Mastra's processDataStream format
+          let fullContent = ''
+          await response.processDataStream({
+            onChunk: async (chunk: any) => {
+              if (chunk && chunk.content) {
+                fullContent += chunk.content
+                setStreamingContent(fullContent)
+                console.log('[MuxAnalyticsChat] Processed chunk:', chunk.content.length, 'chars')
+              }
+            }
+          })
+          console.log('[MuxAnalyticsChat] Processed content length:', fullContent.length)
+        } else {
+          console.warn('[MuxAnalyticsChat] No recognized response format:', Object.keys(response))
+          // Try to extract any text content from the response
+          const responseText = response.toString() || JSON.stringify(response)
+          setStreamingContent(responseText)
+        }
       }
     } catch (error) {
       console.error('[MuxAnalyticsChat] Error:', error)
