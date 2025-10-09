@@ -35,7 +35,7 @@ describe('Mastra Client Configuration', () => {
     
     const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId();
     // The function returns the env var value if set, otherwise the default fallback
-    expect(agentId).toBe('weather'); // This matches the value in .env file
+    expect(agentId).toBe('video professional streaming media at paramount plus'); // This matches the value in env.example
   });
 
   it('should get display host', async () => {
