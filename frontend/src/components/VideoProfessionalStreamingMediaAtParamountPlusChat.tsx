@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react'
-import { mastra, getVideoProfessionalStreamingMediaAtParamountPlusAgentId, getDisplayHost } from '../lib/mastraClient'
+import { mastra, getMuxAnalyticsAgentId, getDisplayHost } from '../lib/mastraClient'
 import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
 import MuxSignedPlayer from './MuxSignedPlayer'
@@ -506,142 +506,11 @@ export default function WeatherChat() {
     muxAnalytics = []
   }
 
-  // Enhanced streamVNext hook with better error handling and metrics
-  const { state: streamState, streamVNext, retry } = useStreamVNext({
-    onChunk: (chunk: StreamChunk) => {
-      if (chunk.type === 'text' && chunk.content) {
-        setMessages((prev) => {
-          const assistantId = prev[prev.length - 1]?.id
-          return prev.map((m) => {
-            if (m.id === assistantId) {
-              // Smart separator logic to avoid breaking URLs but preserve proper text formatting
-              let separator = ''
-              if (m.content && chunk.content) {
-                const lastChar = m.content[m.content.length - 1]
-                const firstChar = chunk.content[0]
-                const urlChars = [':', '/', '=', '?', '&', '-', '_']
-                
-                // No separator if already ends with space or newline
-                if (lastChar === ' ' || lastChar === '\n') {
-                  separator = ''
-                }
-                // Add newline for numbered lists (e.g., "1." -> "2.")
-                else if (lastChar === '.' && firstChar && firstChar.match(/[0-9]/)) {
-                  separator = '\n'
-                }
-                // Don't add space if it would break URLs
-                else if (urlChars.includes(lastChar) || urlChars.includes(firstChar)) {
-                  separator = ''
-                }
-                // Don't add space if both chars are alphanumeric (word continuation)
-                else if (lastChar && firstChar && 
-                        lastChar.match(/[a-zA-Z0-9]/) && firstChar.match(/[a-zA-Z0-9]/)) {
-                  separator = ''
-                }
-                // Add space for all other cases (punctuation, etc.)
-                else {
-                  separator = ' '
-                }
-              }
-              return { ...m, content: m.content + separator + chunk.content }
-            }
-            return m
-          })
-        })
-        setHasAssistantResponded(true)
-      } else if (chunk.type === 'tool_call') {
-        // Handle tool calls
-        const toolCallId = chunk.toolName || `tool-${Date.now()}`
-        const toolCallStartTime = Date.now()
-        
-        setMessages((prev) => {
-          const assistantId = prev[prev.length - 1]?.id
-          return prev.map((m) => {
-            if (m.id === assistantId) {
-              const debugInfo: DebugInfo = {
-                toolCalls: [...(m.debugInfo?.toolCalls || []), {
-                  id: toolCallId,
-                  toolName: chunk.toolName || 'unknown',
-                  args: chunk.toolArgs || {},
-                  status: 'called',
-                  timestamp: new Date(toolCallStartTime)
-                }]
-              }
-              return { ...m, debugInfo }
-            }
-            return m
-          })
-        })
-        
-        // Also notify MCP Debug Panel if available
-        if (typeof window !== 'undefined' && (window as any).mcpDebugPanel) {
-          (window as any).mcpDebugPanel.addToolCall(
-            chunk.toolName || 'unknown',
-            'called',
-            chunk.toolArgs
-          )
-        }
-      } else if (chunk.type === 'tool_result') {
-        // Handle tool results - store in debug info, don't add to main content
-        const toolResultTime = Date.now()
-        
-        setMessages((prev) => {
-          const assistantId = prev[prev.length - 1]?.id
-          return prev.map((m) => {
-            if (m.id === assistantId) {
-              // Update tool call status with result and calculate duration
-              const updatedToolCalls = m.debugInfo?.toolCalls?.map((tc) => {
-                if (tc.toolName === chunk.toolName) {
-                  const duration = tc.timestamp ? toolResultTime - tc.timestamp.getTime() : undefined
-                  return { 
-                    ...tc, 
-                    result: chunk.toolResult, 
-                    status: 'result' as const,
-                    duration
-                  }
-                }
-                return tc
-              }) || []
-              
-              return { 
-                ...m, 
-                debugInfo: { ...m.debugInfo, toolCalls: updatedToolCalls }
-              }
-            }
-            return m
-          })
-        })
-        
-        // Also notify MCP Debug Panel if available
-        if (typeof window !== 'undefined' && (window as any).mcpDebugPanel) {
-          // Calculate duration for debug panel
-          const toolCall = messages[messages.length - 1]?.debugInfo?.toolCalls?.find(tc => tc.toolName === chunk.toolName)
-          const duration: number | undefined = toolCall?.timestamp ? toolResultTime - toolCall.timestamp.getTime() : undefined
-          
-          const mcpDebugPanel = (window as any).mcpDebugPanel
-          if (mcpDebugPanel && typeof mcpDebugPanel.addToolCall === 'function') {
-            mcpDebugPanel.addToolCall(
-              chunk.toolName || 'unknown',
-              'result',
-              undefined,
-              chunk.toolResult,
-              undefined,
-              duration
-            )
-          }
-        }
-      }
-    },
-    onComplete: () => {
-      setHasAssistantResponded(true)
-    },
-    onError: () => {
-      // Error handling is managed by the useStreamVNext hook
-    },
-    maxRetries: 3,
-    timeout: 30000,
-    enableMetrics: true
-  })
+  // State management for streaming
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [streamMetrics, setStreamMetrics] = useState<any>(null)
 
   const [agent, setAgent] = useState<VideoProfessionalStreamingMediaAtParamountPlusAgent | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
@@ -654,7 +523,7 @@ export default function WeatherChat() {
 
     const loadAgent = async () => {
       try {
-        const agentId = getVideoProfessionalStreamingMediaAtParamountPlusAgentId()
+        const agentId = getMuxAnalyticsAgentId()
         const loadedAgent = await mastra.getAgent(agentId)
         setAgent(loadedAgent as VideoProfessionalStreamingMediaAtParamountPlusAgent)
         setAgentError(null)
@@ -749,20 +618,77 @@ export default function WeatherChat() {
     const systemPrompt = `You are a Mux Video Analytics Agent, an expert streaming video engineer. Analyze Mux video streaming data, identify performance issues, and provide actionable recommendations. Focus on error rates, rebuffering, startup times, playback quality, and CDN performance. Provide technical insights appropriate for engineering teams. Keep responses clear, specific, and focused on measurable improvements.`
 
     try {
-      await streamVNext(agent, userMsg.content, {
-        format: 'mastra',
+      setIsLoading(true)
+      setIsStreaming(true)
+      setError(null)
+      
+      // Use Mastra's native streaming interface
+      const response = await agent.streamVNext([{ role: 'user', content: userMsg.content }], {
         system: systemPrompt,
         memory: {
           thread: threadId,
           resource: resourceId,
         },
-        timeout: 30000,
-        retries: 3
+        timeout: 30000
       })
+      
+      // Handle streaming response
+      if (response.textStream) {
+        let fullContent = ''
+        for await (const chunk of response.textStream) {
+          if (chunk && typeof chunk === 'string') {
+            fullContent += chunk
+            // Update the last assistant message with streaming content
+            setMessages(prev => {
+              const updated = [...prev]
+              const lastIndex = updated.length - 1
+              if (updated[lastIndex].role === 'assistant') {
+                updated[lastIndex] = {
+                  ...updated[lastIndex],
+                  content: fullContent
+                }
+              }
+              return updated
+            })
+          }
+        }
+      } else if (response.text) {
+        // Handle non-streaming response
+        const textContent = typeof response.text === 'function' ? await response.text() : response.text
+        setMessages(prev => {
+          const updated = [...prev]
+          const lastIndex = updated.length - 1
+          if (updated[lastIndex].role === 'assistant') {
+            updated[lastIndex] = {
+              ...updated[lastIndex],
+              content: textContent
+            }
+          }
+          return updated
+        })
+      }
     } catch (error) {
-      // Error handling is managed by the useStreamVNext hook
+      console.error('[VideoProfessionalStreamingMediaAtParamountPlusChat] Error:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      setError(errorMessage)
+      
+      // Update the last assistant message with error
+      setMessages(prev => {
+        const updated = [...prev]
+        const lastIndex = updated.length - 1
+        if (updated[lastIndex].role === 'assistant') {
+          updated[lastIndex] = {
+            ...updated[lastIndex],
+            content: `Error: ${errorMessage}`
+          }
+        }
+        return updated
+      })
+    } finally {
+      setIsLoading(false)
+      setIsStreaming(false)
     }
-  }, [input, agent, streamVNext, hasAssistantResponded])
+  }, [input, agent, hasAssistantResponded])
 
 
   return (
@@ -775,22 +701,20 @@ export default function WeatherChat() {
       </div>
 
       {/* Enhanced Status Display */}
-      {streamState.metrics && (
-        <div className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
-          {streamState.isStreaming && (
-            <div className="flex items-center gap-2">
-              <span className="animate-pulse">📊</span>
-              <span>Analyzing Mux video data and generating insights...</span>
-            </div>
-          )}
-          {streamState.retryCount > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="animate-spin">🔄</span>
-              <span>Connection interrupted, reconnecting to analytics service... ({streamState.retryCount}/3)</span>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="text-xs" style={{ color: 'var(--fg-subtle)' }}>
+        {isStreaming && (
+          <div className="flex items-center gap-2">
+            <span className="animate-pulse">📊</span>
+            <span>Analyzing Mux video data and generating insights...</span>
+          </div>
+        )}
+        {isLoading && !isStreaming && (
+          <div className="flex items-center gap-2">
+            <span className="animate-spin">⏳</span>
+            <span>Processing your request...</span>
+          </div>
+        )}
+      </div>
 
       <div
         aria-label="Chat messages"
@@ -838,7 +762,7 @@ export default function WeatherChat() {
       </div>
 
       {/* Enhanced Error Display */}
-      {(streamState.error || agentError) && (
+      {(error || agentError) && (
         <div
           aria-live="assertive"
           className="text-sm p-3 rounded-lg border"
@@ -853,17 +777,9 @@ export default function WeatherChat() {
           <div className="flex items-center gap-2">
             <span>⚠️</span>
             <span>
-              {agentError || (typeof streamState.error === 'string' ? streamState.error : String(streamState.error || 'Unknown error'))}
+              {agentError || error || 'Unknown error'}
             </span>
           </div>
-          {streamState.retryCount > 0 && (
-            <button
-              onClick={retry}
-              className="mt-2 px-3 py-1 text-xs bg-red-100 hover:bg-red-200 rounded border border-red-300 transition-colors"
-            >
-              Retry ({streamState.retryCount}/3)
-            </button>
-          )}
         </div>
       )}
 
@@ -884,16 +800,16 @@ export default function WeatherChat() {
                 onSend()
               }
             }}
-            disabled={streamState.isLoading}
+            disabled={isLoading}
           />
         </div>
         <button
           aria-label="Send message"
           className="btn whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={onSend}
-          disabled={!agent || streamState.isLoading || !input.trim()}
+          disabled={!agent || isLoading || !input.trim()}
         >
-          {streamState.isLoading ? (
+          {isLoading ? (
             <span className="flex items-center gap-2">
               <span className="animate-spin">⏳</span>
               Please wait...
@@ -910,7 +826,7 @@ export default function WeatherChat() {
       </div>
 
       {/* Debug Panel */}
-      {streamState.metrics && (
+      {muxAnalytics.length > 0 && (
         <details className="text-xs">
           <summary className="cursor-pointer hover:opacity-70 transition-opacity" style={{ color: 'var(--fg-muted)' }}>
             🔧 Technical Details
@@ -920,123 +836,73 @@ export default function WeatherChat() {
             borderColor: 'var(--border)'
           }}>
             <div className="space-y-3">
-              {/* Stream Metrics */}
+              {/* Mux Video Analytics */}
               <div className="space-y-2">
                 <h4 className="font-semibold border-b pb-1" style={{ 
                   color: 'var(--fg)',
                   borderColor: 'var(--border)'
-                }}>Analytics Stream</h4>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--fg-muted)' }}>Response Time:</span>
-                  <span className="font-mono" style={{ color: 'var(--fg)' }}>
-                    {streamState.metrics.endTime 
-                      ? `${((streamState.metrics.endTime - streamState.metrics.startTime) / 1000).toFixed(1)}s`
-                      : 'In progress...'
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--fg-muted)' }}>Data Chunks:</span>
-                  <span className="font-mono" style={{ color: 'var(--fg)' }}>{streamState.metrics.chunksReceived}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span style={{ color: 'var(--fg-muted)' }}>Data Size:</span>
-                  <span className="font-mono" style={{ color: 'var(--fg)' }}>
-                    {streamState.metrics.bytesReceived > 1024 
-                      ? `${(streamState.metrics.bytesReceived / 1024).toFixed(1)}KB`
-                      : `${streamState.metrics.bytesReceived}B`
-                    }
-                  </span>
-                </div>
-                {streamState.metrics.errors > 0 && (
-                  <div className="flex justify-between" style={{ color: 'var(--error)' }}>
-                    <span>Connection Issues:</span>
-                    <span className="font-mono">{streamState.metrics.errors}</span>
-                  </div>
-                )}
-                {streamState.metrics.retries > 0 && (
-                  <div className="flex justify-between" style={{ color: 'var(--warn)' }}>
-                    <span>Reconnection Attempts:</span>
-                    <span className="font-mono">{streamState.metrics.retries}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Mux Video Analytics */}
-              {(() => {
-                const hasVideoAnalytics = muxAnalytics.length > 0
-                
-                if (!hasVideoAnalytics) return null
-                
-                return (
-                  <div className="space-y-2">
-                    <h4 className="font-semibold border-b pb-1" style={{ 
-                      color: 'var(--fg)',
-                      borderColor: 'var(--border)'
-                    }}>Video Analytics</h4>
-                    {muxAnalytics.map((analytics, index) => (
-                      <div key={analytics.assetId || index} className="space-y-1 pl-2 border-l-2" style={{ borderColor: 'var(--accent)' }}>
-                        <div className="flex justify-between">
-                          <span style={{ color: 'var(--fg-muted)' }}>Asset ID:</span>
-                          <span className="font-mono text-xs" style={{ color: 'var(--fg)' }}>{analytics.assetId?.substring(0, 8)}...</span>
-                        </div>
-                        {analytics.videoDuration && (
-                          <div className="flex justify-between">
-                            <span style={{ color: 'var(--fg-muted)' }}>Duration:</span>
-                            <span className="font-mono" style={{ color: 'var(--fg)' }}>{Math.round(analytics.videoDuration)}s</span>
-                          </div>
-                        )}
-                        {analytics.currentTime !== undefined && (
-                          <div className="flex justify-between">
-                            <span style={{ color: 'var(--fg-muted)' }}>Current Time:</span>
-                            <span className="font-mono" style={{ color: 'var(--fg)' }}>{Math.round(analytics.currentTime)}s</span>
-                          </div>
-                        )}
-                        {analytics.completionRate > 0 && (
-                          <div className="flex justify-between">
-                            <span style={{ color: 'var(--fg-muted)' }}>Completion:</span>
-                            <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.completionRate.toFixed(1)}%</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between">
-                          <span style={{ color: 'var(--fg-muted)' }}>Play Events:</span>
-                          <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.playEvents}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span style={{ color: 'var(--fg-muted)' }}>Pause Events:</span>
-                          <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.pauseEvents}</span>
-                        </div>
-                        {analytics.bufferingEvents > 0 && (
-                          <div className="flex justify-between" style={{ color: 'var(--warn)' }}>
-                            <span>Buffering Events:</span>
-                            <span className="font-mono">{analytics.bufferingEvents}</span>
-                          </div>
-                        )}
-                        {analytics.seekingEvents > 0 && (
-                          <div className="flex justify-between" style={{ color: 'var(--accent)' }}>
-                            <span>Seek Events:</span>
-                            <span className="font-mono">{analytics.seekingEvents}</span>
-                          </div>
-                        )}
-                        {analytics.errorEvents > 0 && (
-                          <div className="flex justify-between" style={{ color: 'var(--error)' }}>
-                            <span>Video Errors:</span>
-                            <span className="font-mono">{analytics.errorEvents}</span>
-                          </div>
-                        )}
-                        {analytics.lastEventTime && (
-                          <div className="flex justify-between" style={{ color: 'var(--fg-subtle)' }}>
-                            <span>Last Activity:</span>
-                            <span className="font-mono text-xs">
-                              {analytics.lastEventTime.toLocaleTimeString()}
-                            </span>
-                          </div>
-                        )}
+                }}>Video Analytics</h4>
+                {muxAnalytics.map((analytics, index) => (
+                  <div key={analytics.assetId || index} className="space-y-1 pl-2 border-l-2" style={{ borderColor: 'var(--accent)' }}>
+                    <div className="flex justify-between">
+                      <span style={{ color: 'var(--fg-muted)' }}>Asset ID:</span>
+                      <span className="font-mono text-xs" style={{ color: 'var(--fg)' }}>{analytics.assetId?.substring(0, 8)}...</span>
+                    </div>
+                    {analytics.videoDuration && (
+                      <div className="flex justify-between">
+                        <span style={{ color: 'var(--fg-muted)' }}>Duration:</span>
+                        <span className="font-mono" style={{ color: 'var(--fg)' }}>{Math.round(analytics.videoDuration)}s</span>
                       </div>
-                    ))}
+                    )}
+                    {analytics.currentTime !== undefined && (
+                      <div className="flex justify-between">
+                        <span style={{ color: 'var(--fg-muted)' }}>Current Time:</span>
+                        <span className="font-mono" style={{ color: 'var(--fg)' }}>{Math.round(analytics.currentTime)}s</span>
+                      </div>
+                    )}
+                    {analytics.completionRate > 0 && (
+                      <div className="flex justify-between">
+                        <span style={{ color: 'var(--fg-muted)' }}>Completion:</span>
+                        <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.completionRate.toFixed(1)}%</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span style={{ color: 'var(--fg-muted)' }}>Play Events:</span>
+                      <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.playEvents}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span style={{ color: 'var(--fg-muted)' }}>Pause Events:</span>
+                      <span className="font-mono" style={{ color: 'var(--fg)' }}>{analytics.pauseEvents}</span>
+                    </div>
+                    {analytics.bufferingEvents > 0 && (
+                      <div className="flex justify-between" style={{ color: 'var(--warn)' }}>
+                        <span>Buffering Events:</span>
+                        <span className="font-mono">{analytics.bufferingEvents}</span>
+                      </div>
+                    )}
+                    {analytics.seekingEvents > 0 && (
+                      <div className="flex justify-between" style={{ color: 'var(--accent)' }}>
+                        <span>Seek Events:</span>
+                        <span className="font-mono">{analytics.seekingEvents}</span>
+                      </div>
+                    )}
+                    {analytics.errorEvents > 0 && (
+                      <div className="flex justify-between" style={{ color: 'var(--error)' }}>
+                        <span>Video Errors:</span>
+                        <span className="font-mono">{analytics.errorEvents}</span>
+                      </div>
+                    )}
+                    {analytics.lastEventTime && (
+                      <div className="flex justify-between" style={{ color: 'var(--fg-subtle)' }}>
+                        <span>Last Activity:</span>
+                        <span className="font-mono text-xs">
+                          {analytics.lastEventTime.toLocaleTimeString()}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )
-              })()}
+                ))}
+              </div>
             </div>
           </div>
         </details>

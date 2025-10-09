@@ -25,10 +25,7 @@ interface Message {
  * Analytics agent interface for type safety
  */
 interface MuxAnalyticsAgent {
-  streamVNext: (message: string, options?: Record<string, unknown>) => Promise<{
-    textStream?: AsyncIterable<string>
-    fullStream?: AsyncIterable<StreamChunk>
-  }>
+  streamVNext: (message: string, options?: Record<string, unknown>) => Promise<any>
 }
 
 /**
@@ -48,20 +45,9 @@ export default function MuxAnalyticsChat() {
   const muxAnalytics = useMuxAnalytics()
 
   const [streamingContent, setStreamingContent] = useState('')
-
-  // Enhanced streamVNext hook with better error handling
-  const { state, streamVNext } = useStreamVNext({
-    maxRetries: 3,
-    timeout: 30000,
-    enableMetrics: true,
-    onChunk: (chunk) => {
-      if (chunk.type === 'text' && chunk.content) {
-        setStreamingContent(prev => prev + chunk.content)
-      }
-    }
-  })
-
-  const { isLoading, error, isStreaming } = state
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
 
   const [agent, setAgent] = useState<MuxAnalyticsAgent | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
@@ -148,7 +134,12 @@ export default function MuxAnalyticsChat() {
     setStreamingContent('') // Reset streaming content for new message
 
     try {
-      // Use the agent's streamVNext method directly
+      setIsLoading(true)
+      setIsStreaming(true)
+      setError(null)
+      setStreamingContent('')
+      
+      // Use Mastra's native streaming interface
       const response = await agent.streamVNext([{ role: 'user', content: trimmed }])
       
       // Handle streaming response
@@ -162,12 +153,28 @@ export default function MuxAnalyticsChat() {
         }
       } else if (response.text) {
         // Handle non-streaming response
-        setStreamingContent(response.text)
+        const textContent = typeof response.text === 'function' ? await response.text() : response.text
+        setStreamingContent(textContent)
+      } else if (response.processDataStream) {
+        // Handle Mastra's processDataStream format
+        let fullContent = ''
+        await response.processDataStream({
+          onChunk: async (chunk: any) => {
+            if (chunk && chunk.content) {
+              fullContent += chunk.content
+              setStreamingContent(fullContent)
+            }
+          }
+        })
       }
     } catch (error) {
       console.error('[MuxAnalyticsChat] Error:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
+      setError(errorMessage)
       setStreamingContent(`Error: ${errorMessage}`)
+    } finally {
+      setIsLoading(false)
+      setIsStreaming(false)
     }
   }, [input, agent, hasAssistantResponded])
 

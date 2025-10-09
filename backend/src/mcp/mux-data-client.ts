@@ -300,6 +300,13 @@ export class MuxDataMcpClient {
     }
 
     /**
+     * Check if the MCP client is connected
+     */
+    isConnected(): boolean {
+        return this.connected && this.client !== null;
+    }
+
+    /**
      * Disconnect from the MCP server
      */
     async disconnect(): Promise<void> {

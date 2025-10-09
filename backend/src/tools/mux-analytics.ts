@@ -1,9 +1,6 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 
-// Mux Data API base URL
-const MUX_DATA_API_BASE = 'https://api.mux.com/data/v1';
-
 // Utility function to sanitize API keys from error messages
 function sanitizeApiKey(message: string): string {
     return message.replace(/[A-Za-z0-9]{20,}/g, '[REDACTED_API_KEY]');
@@ -33,7 +30,7 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
 
 // Mux API valid timeframe constraints
 const MUX_API_VALID_START = 1751241600; // Jun 30 2025
-const MUX_API_VALID_END = 1759964076;   // Oct 8 2025
+const MUX_API_VALID_END = 1760100000;   // Oct 10 2025 (extended to include recent data)
 
 /**
  * Generate valid timestamps within Mux API constraints
@@ -74,58 +71,6 @@ function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [num
     return [start, end];
 }
 
-/**
- * Make authenticated request to Mux Data API
- * Uses direct REST API for simplicity and reliability
- */
-async function muxDataRequest(endpoint: string, params?: Record<string, any>): Promise<any> {
-    const muxTokenId = process.env.MUX_TOKEN_ID;
-    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
-    
-    if (!validateApiKey(muxTokenId, 'MUX_TOKEN_ID') || !validateApiKey(muxTokenSecret, 'MUX_TOKEN_SECRET')) {
-        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required and must be valid');
-    }
-    
-    const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
-    
-    // Build URL with query params
-    const url = new URL(`${MUX_DATA_API_BASE}${endpoint}`);
-    if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-            if (value !== undefined && value !== null) {
-                // Handle timeframe array specially - must be added as separate query params
-                if (key === 'timeframe' && Array.isArray(value)) {
-                    value.forEach((v: any) => {
-                        url.searchParams.append('timeframe[]', String(v));
-                    });
-                } else if (key === 'filters' && Array.isArray(value)) {
-                    // Handle filters array - each filter is a separate param
-                    value.forEach((v: any) => {
-                        url.searchParams.append('filters[]', String(v));
-                    });
-                } else if (!Array.isArray(value)) {
-                    url.searchParams.append(key, String(value));
-                }
-            }
-        });
-    }
-    
-    const response = await fetch(url.toString(), {
-        method: 'GET',
-        headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-        }
-    } as any);
-    
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        const sanitizedError = sanitizeApiKey(errorText);
-        throw new Error(`Mux Data API error ${response.status}: ${sanitizedError}`);
-    }
-    
-    return await response.json();
-}
 
 /**
  * Analyze video quality metrics and provide recommendations
@@ -211,11 +156,11 @@ function analyzeMetrics(data: any): {
 }
 
 /**
- * Mux Analytics Tool - Fetch overall metrics
+ * Mux Analytics Tool - Fetch overall metrics using MCP
  */
 export const muxAnalyticsTool = createTool({
     id: "mux-analytics",
-    description: "Fetch Mux video streaming analytics and metrics for a specific time range. Returns overall performance data including views, errors, rebuffering, and startup times. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch Mux video streaming analytics and metrics for a specific time range using MCP tools. Returns overall performance data including views, errors, rebuffering, and startup times. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
             z.array(z.number()).length(2),
@@ -251,29 +196,45 @@ export const muxAnalyticsTool = createTool({
             // Use valid timeframe within Mux API constraints
             const [start, end] = getValidTimeframe(startTime, endTime);
             
-            const params: any = {
-                timeframe: [start, end],
-            };
+            // Import MCP client dynamically to avoid circular dependencies
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
             
-            if (filters && filters.length > 0) {
-                params.filters = filters;
+            // Connect to MCP if not already connected
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
             }
             
-            // Fetch overall metrics
-            const metricsData = await muxDataRequest('/metrics/overall', params);
+            // Get MCP tools
+            const tools = await muxDataMcpClient.getTools();
             
-            // Analyze the data
-            const analysis = analyzeMetrics(metricsData.data || metricsData);
-            
-            return {
-                success: true,
-                timeRange: {
-                    start: new Date(start * 1000).toISOString(),
-                    end: new Date(end * 1000).toISOString(),
-                },
-                metrics: metricsData.data || metricsData,
-                analysis,
-            };
+            // Use the get_overall_values tool (MCP creates this from get_overall_values_data_metrics endpoint)
+            if (tools['get_overall_values']) {
+                const params: any = {
+                    METRIC_ID: 'video_startup_failure_percentage', // Required parameter for Mux Data API
+                    timeframe: [start, end],
+                };
+                
+                if (filters && filters.length > 0) {
+                    params.filters = filters;
+                }
+                
+                const metricsData = await tools['get_overall_values'].execute({ context: params });
+                
+                // Analyze the data
+                const analysis = analyzeMetrics(metricsData.data || metricsData);
+                
+                return {
+                    success: true,
+                    timeRange: {
+                        start: new Date(start * 1000).toISOString(),
+                        end: new Date(end * 1000).toISOString(),
+                    },
+                    metrics: metricsData.data || metricsData,
+                    analysis,
+                };
+            } else {
+                throw new Error('get_overall_values tool not available in MCP');
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);
@@ -281,7 +242,7 @@ export const muxAnalyticsTool = createTool({
             return {
                 success: false,
                 error: sanitizedError,
-                message: 'Failed to fetch Mux analytics data'
+                message: 'Failed to fetch Mux analytics data via MCP'
             };
         }
     },
@@ -357,11 +318,11 @@ export const muxAssetsListTool = createTool({
 });
 
 /**
- * Mux Video Views Tool - Get detailed view data
+ * Mux Video Views Tool - Get detailed view data using MCP
  */
 export const muxVideoViewsTool = createTool({
     id: "mux-video-views",
-    description: "Fetch detailed video view data from Mux. Returns individual viewing sessions with metadata. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch detailed video view data from Mux using MCP tools. Returns individual viewing sessions with metadata. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
             z.array(z.number()).length(2),
@@ -398,26 +359,46 @@ export const muxVideoViewsTool = createTool({
             // Use valid timeframe within Mux API constraints
             const [start, end] = getValidTimeframe(startTime, endTime);
             
-            const params: any = {
-                timeframe: [start, end],
-                limit: limit || 25,
-            };
+            // Import MCP client dynamically to avoid circular dependencies
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
             
-            if (filters && filters.length > 0) {
-                params.filters = filters;
+            // Connect to MCP if not already connected
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
             }
             
-            const viewsData = await muxDataRequest('/video-views', params);
+            // Get MCP tools
+            const tools = await muxDataMcpClient.getTools();
             
-            return {
-                success: true,
-                timeRange: {
-                    start: new Date(start * 1000).toISOString(),
-                    end: new Date(end * 1000).toISOString(),
-                },
-                views: viewsData.data || [],
-                totalViews: viewsData.data?.length || 0,
-            };
+            // Try different possible tool names for video views
+            const videoViewsToolName = Object.keys(tools).find(name => 
+                name.includes('video') && name.includes('view')
+            );
+            
+            if (videoViewsToolName) {
+                const params: any = {
+                    timeframe: [start, end],
+                    limit: limit || 25,
+                };
+                
+                if (filters && filters.length > 0) {
+                    params.filters = filters;
+                }
+                
+                const viewsData = await tools[videoViewsToolName].execute({ context: params });
+                
+                return {
+                    success: true,
+                    timeRange: {
+                        start: new Date(start * 1000).toISOString(),
+                        end: new Date(end * 1000).toISOString(),
+                    },
+                    views: viewsData.data || [],
+                    totalViews: viewsData.data?.length || 0,
+                };
+            } else {
+                throw new Error('No video views tool available in MCP');
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);
@@ -425,18 +406,18 @@ export const muxVideoViewsTool = createTool({
             return {
                 success: false,
                 error: sanitizedError,
-                message: 'Failed to fetch video views data'
+                message: 'Failed to fetch video views data via MCP'
             };
         }
     },
 });
 
 /**
- * Mux Errors Tool - Get error data broken down by dimension
+ * Mux Errors Tool - Get error data broken down by dimension using MCP
  */
 export const muxErrorsTool = createTool({
     id: "mux-errors",
-    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions. Returns error counts, percentages, and detailed error information. If no timeframe is provided, defaults to last 24 hours of available data.",
+    description: "Fetch error data from Mux broken down by platform, browser, or other dimensions using MCP tools. Returns error counts, percentages, and detailed error information. If no timeframe is provided, defaults to last 24 hours of available data.",
     inputSchema: z.object({
         timeframe: z.union([
             z.array(z.number()).length(2),
@@ -472,36 +453,62 @@ export const muxErrorsTool = createTool({
             // Use valid timeframe within Mux API constraints
             const [start, end] = getValidTimeframe(startTime, endTime);
             
-            const params: any = {
-                timeframe: [start, end],
-            };
+            // Import MCP client dynamically to avoid circular dependencies
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
             
-            if (filters && filters.length > 0) {
-                params.filters = filters;
+            // Connect to MCP if not already connected
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
             }
             
-            // Fetch error data
-            const errorsData = await muxDataRequest('/errors', params);
+            // Get MCP tools
+            const tools = await muxDataMcpClient.getTools();
             
-            // Also get breakdown by operating system
-            const osBreakdown = await muxDataRequest('/metrics/video_startup_failure_percentage/breakdown', {
-                ...params,
-                group_by: 'operating_system',
-                order_by: 'negative_impact',
-                order_direction: 'desc',
-                limit: 20
-            });
-            
-            return {
-                success: true,
-                timeRange: {
-                    start: new Date(start * 1000).toISOString(),
-                    end: new Date(end * 1000).toISOString(),
-                },
-                errors: errorsData.data || [],
-                totalErrors: errorsData.total_row_count || 0,
-                platformBreakdown: osBreakdown.data || [],
-            };
+            // Use the list_errors tool (MCP creates this from list_data_errors endpoint)
+            if (tools['list_errors']) {
+                const params: any = {
+                    timeframe: [start, end],
+                };
+                
+                if (filters && filters.length > 0) {
+                    params.filters = filters;
+                }
+                
+                const errorsData = await tools['list_errors'].execute({ context: params });
+                
+                // Also get breakdown by operating system if available
+                let osBreakdown = [];
+                if (tools['list_breakdown_values']) {
+                    try {
+                        const breakdownData = await tools['list_breakdown_values'].execute({ 
+                            context: {
+                                METRIC_ID: 'video_startup_failure_percentage', // Required parameter
+                                timeframe: [start, end],
+                                group_by: 'operating_system',
+                                order_by: 'negative_impact',
+                                order_direction: 'desc',
+                                limit: 20
+                            }
+                        });
+                        osBreakdown = breakdownData.data || [];
+                    } catch (breakdownError) {
+                        console.warn('Could not fetch platform breakdown:', breakdownError);
+                    }
+                }
+                
+                return {
+                    success: true,
+                    timeRange: {
+                        start: new Date(start * 1000).toISOString(),
+                        end: new Date(end * 1000).toISOString(),
+                    },
+                    errors: errorsData.data || [],
+                    totalErrors: errorsData.total_row_count || 0,
+                    platformBreakdown: osBreakdown,
+                };
+            } else {
+                throw new Error('list_errors tool not available in MCP');
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);
@@ -509,7 +516,7 @@ export const muxErrorsTool = createTool({
             return {
                 success: false,
                 error: sanitizedError,
-                message: 'Failed to fetch error data'
+                message: 'Failed to fetch error data via MCP'
             };
         }
     },
