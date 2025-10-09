@@ -523,7 +523,7 @@ export default function WeatherChat() {
             if (m.id === assistantId) {
               // Smart separator logic to avoid breaking URLs but preserve proper text formatting
               let separator = ''
-              if (m.content) {
+              if (m.content && chunk.content) {
                 const lastChar = m.content[m.content.length - 1]
                 const firstChar = chunk.content[0]
                 const urlChars = [':', '/', '=', '?', '&', '-', '_']
