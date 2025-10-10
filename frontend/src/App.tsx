@@ -35,8 +35,12 @@ export default function App() {
               <span className="text-xl" style={{ color: 'var(--warn)' }}>📊</span>
             </div>
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight" style={{ color: 'var(--fg)' }}>Paramount Plus Video Professional Streaming Media</h1>
-              <p className="text-sm" style={{ color: 'var(--fg-subtle)' }}>AI-powered video streaming analytics and optimization recommendations</p>
+              <h1 className="text-3xl font-bold tracking-tighter bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
+                Paramount Plus Video Professional Streaming Media
+              </h1>
+              <p className="text-sm font-medium tracking-wide uppercase mt-1" style={{ color: 'var(--fg-subtle)', letterSpacing: '0.05em' }}>
+                AI-powered video streaming analytics and optimization recommendations
+              </p>
             </div>
           </div>
           <div className="shrink-0">
@@ -47,11 +51,11 @@ export default function App() {
 
       <main className="relative z-10 max-w-4xl lg:max-w-7xl mx-auto p-4 md:p-6 pb-16">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6 items-start">
-          {/* Video (1/5 on lg+) - Smaller video section */}
+          {/* Video (1/5 on lg+) - Taller video section */}
           <div className="lg:col-span-1 order-2 lg:order-1">
-            <div className="card p-4 md:p-6">
+            <div className="card p-4 md:p-6 flex items-center justify-center" style={{ minHeight: '720px' }}>
               <Suspense fallback={
-                <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
+                <div className="w-full rounded-xl border grid place-items-center text-sm" style={{ minHeight: '640px', background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
                   <div className="flex items-center gap-2">
                     <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full"></div>
                     <span>Loading video...</span>
@@ -59,7 +63,7 @@ export default function App() {
                 </div>
               }>
                 <ErrorBoundary>
-                  <MuxSignedPlayer className="w-full mx-auto" />
+                  <MuxSignedPlayer className="w-full" />
                 </ErrorBoundary>
               </Suspense>
             </div>

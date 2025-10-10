@@ -22,46 +22,63 @@ if (existsSync(rootEnvPath)) {
 import { promises as fs } from 'fs';
 import { resolve, dirname, join } from 'path';
 
-// Generate TTS with Deepgram
-async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
-    const apiKey = process.env.DEEPGRAM_API_KEY;
+import { CartesiaClient } from '@cartesia/cartesia-js';
+import { getRandomUSEnglishVoice } from '../utils/cartesia-voices.js';
+
+// Generate TTS with Cartesia using randomized US English voices
+async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
+    const apiKey = process.env.CARTESIA_API_KEY;
     if (!apiKey) {
-        throw new Error('DEEPGRAM_API_KEY not set in environment');
+        throw new Error('CARTESIA_API_KEY not set in environment');
     }
-    const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
-    const url = new URL('https://api.deepgram.com/v1/speak');
-    url.searchParams.set('model', model);
-    url.searchParams.set('encoding', 'linear16');
-
-    const res = await fetch(url.toString(), {
-        method: 'POST',
-        headers: {
-            Authorization: `Token ${apiKey}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text })
-    });
-
-    if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Deepgram TTS failed (${res.status}): ${errText}`);
+    
+    // Initialize Cartesia client
+    const client = new CartesiaClient({ apiKey: apiKey });
+    
+    // Get a random US English voice for variety
+    let voiceId: string;
+    try {
+        const randomVoice = await getRandomUSEnglishVoice(apiKey);
+        voiceId = randomVoice.id;
+        console.log(`🎤 Using randomized voice: ${randomVoice.name} (${randomVoice.id})`);
+    } catch (voiceError) {
+        // Fallback to default voice if random selection fails
+        console.warn('⚠️ Failed to get random voice, using default:', voiceError);
+        voiceId = process.env.CARTESIA_VOICE_ID || 'f9836c6e-a0bd-460e-9d3c-f7299fa60f94';
     }
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
+    
+    try {
+        // Generate TTS audio using Cartesia SDK with WAV output
+        const audioData = await client.tts.bytes({
+            modelId: 'sonic-2',
+            transcript: text,
+            voice: { mode: 'id', id: voiceId },
+            language: 'en',
+            outputFormat: {
+                container: 'wav',  // Get WAV format directly from Cartesia
+                encoding: 'pcm_s16le',
+                sampleRate: 24000
+            }
+        });
+        
+        return Buffer.from(audioData);
+    } catch (error) {
+        throw new Error(`Cartesia TTS failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 async function generateAudioAnalyticsReport() {
     console.log('🎧 Generating Audio Analytics Report...\n');
 
     try {
-        // Check if Deepgram API key is configured
-        if (!process.env.DEEPGRAM_API_KEY) {
-            console.error('❌ DEEPGRAM_API_KEY not configured');
-            console.log('Please set DEEPGRAM_API_KEY in your environment variables');
-            return { success: false, error: 'DEEPGRAM_API_KEY not configured' };
+        // Check if Cartesia API key is configured
+        if (!process.env.CARTESIA_API_KEY) {
+            console.error('❌ CARTESIA_API_KEY not configured');
+            console.log('Please set CARTESIA_API_KEY in your environment variables');
+            return { success: false, error: 'CARTESIA_API_KEY not configured' };
         }
 
-        console.log('✅ Deepgram API key found');
+        console.log('✅ Cartesia API key found');
 
         // Create comprehensive analytics report text
         const analyticsReportText = `Streaming Analytics Audio Report for the Last 24 Hours:
@@ -90,7 +107,7 @@ Recommendation: Continue monitoring performance, but current streaming quality l
 
         // Generate TTS audio
         console.log('\n🎤 Generating TTS audio...');
-        const audioBuffer = await synthesizeWithDeepgramTTS(analyticsReportText);
+        const audioBuffer = await synthesizeWithCartesiaTTS(analyticsReportText);
 
         // Save audio file
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);

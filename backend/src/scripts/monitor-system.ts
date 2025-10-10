@@ -20,7 +20,7 @@ interface SystemStatus {
   environment: {
     nodeEnv: string;
     hasAnthropicKey: boolean;
-    hasDeepgramKey: boolean;
+    hasCartesiaKey: boolean;
     hasMuxKeys: boolean;
   };
   warnings: string[];
@@ -40,10 +40,10 @@ function getMemoryUsage() {
   };
 }
 
-function checkEnvironment(): { hasAnthropicKey: boolean; hasDeepgramKey: boolean; hasMuxKeys: boolean } {
+function checkEnvironment(): { hasAnthropicKey: boolean; hasCartesiaKey: boolean; hasMuxKeys: boolean } {
   return {
     hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-    hasDeepgramKey: !!process.env.DEEPGRAM_API_KEY,
+    hasCartesiaKey: !!process.env.CARTESIA_API_KEY,
     hasMuxKeys: !!(process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET)
   };
 }
@@ -66,8 +66,8 @@ function getSystemStatus(): SystemStatus {
   if (!environment.hasAnthropicKey) {
     errors.push('ANTHROPIC_API_KEY is missing');
   }
-  if (!environment.hasDeepgramKey) {
-    warnings.push('DEEPGRAM_API_KEY is missing (TTS features disabled)');
+  if (!environment.hasCartesiaKey) {
+    warnings.push('CARTESIA_API_KEY is missing (TTS features disabled)');
   }
   if (!environment.hasMuxKeys) {
     warnings.push('Mux credentials missing (video upload features disabled)');
@@ -99,7 +99,7 @@ function formatStatus(status: SystemStatus): string {
   
   lines.push('🔧 Configuration:');
   lines.push(`  • Anthropic API: ${status.environment.hasAnthropicKey ? '✅' : '❌'}`);
-  lines.push(`  • Deepgram API: ${status.environment.hasDeepgramKey ? '✅' : '❌'}`);
+  lines.push(`  • Cartesia API: ${status.environment.hasCartesiaKey ? '✅' : '❌'}`);
   lines.push(`  • Mux API: ${status.environment.hasMuxKeys ? '✅' : '❌'}`);
   lines.push('');
   

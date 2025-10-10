@@ -347,6 +347,7 @@ export default function MuxSignedPlayer({
           }}
           style={{
             width: '100%',
+            maxHeight: '640px',
             height: 'auto',
             aspectRatio: state.status === 'ready' && state.width && state.height ? `${state.width} / ${state.height}` : '16 / 9',
             borderRadius: 12,

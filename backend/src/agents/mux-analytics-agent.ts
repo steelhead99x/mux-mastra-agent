@@ -50,18 +50,30 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-// Generate TTS with Deepgram - Enhanced for natural-sounding speech on macOS
-async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
-    const apiKey = process.env.DEEPGRAM_API_KEY;
-    if (!validateApiKey(apiKey, 'DEEPGRAM_API_KEY')) {
-        throw new Error('DEEPGRAM_API_KEY is required and must be valid');
+import { CartesiaClient } from '@cartesia/cartesia-js';
+import { getRandomUSEnglishVoice } from '../utils/cartesia-voices.js';
+
+// Generate TTS with Cartesia - Enhanced for natural-sounding speech with randomized voices
+async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
+    const apiKey = process.env.CARTESIA_API_KEY;
+    if (!validateApiKey(apiKey, 'CARTESIA_API_KEY')) {
+        throw new Error('CARTESIA_API_KEY is required and must be valid');
     }
     
-    // Use high-quality Aura models for more natural speech
-    // aura-asteria-en: Clear, friendly female voice (default)
-    // aura-athena-en: Professional female voice
-    // aura-helios-en: Clear male voice
-    const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
+    // Initialize Cartesia client
+    const client = new CartesiaClient({ apiKey: apiKey });
+    
+    // Get a random US English voice for variety
+    let voiceId: string;
+    try {
+        const randomVoice = await getRandomUSEnglishVoice(apiKey!);
+        voiceId = randomVoice.id;
+        console.log(`🎤 Using randomized voice: ${randomVoice.name} (${randomVoice.id})`);
+    } catch (voiceError) {
+        // Fallback to default voice if random selection fails
+        console.warn('⚠️ Failed to get random voice, using default:', voiceError);
+        voiceId = process.env.CARTESIA_VOICE_ID || 'f9836c6e-a0bd-460e-9d3c-f7299fa60f94';
+    }
     
     // Enhanced text preprocessing for natural speech flow
     // Preserve intentional pauses while ensuring clean speech
@@ -73,29 +85,27 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
         .replace(/([a-z])([A-Z])/g, '$1 $2')  // Add space between camelCase words
         .trim();
     
-    const url = new URL('https://api.deepgram.com/v1/speak');
-    url.searchParams.set('model', model);
-    url.searchParams.set('encoding', 'linear16');  // Uncompressed PCM for best quality
-    url.searchParams.set('sample_rate', '24000');  // High-quality audio, macOS compatible
-    url.searchParams.set('container', 'wav');      // Standard WAV format, universally supported
-    
-    const res = await fetch(url.toString(), {
-        method: 'POST',
-        headers: {
-            Authorization: `Token ${apiKey}`,
-            'Content-Type': 'application/json',
-        } as any,
-        body: JSON.stringify({ text: naturalText })
-    } as any);
-
-    if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        const sanitizedError = sanitizeApiKey(errText);
-        throw new Error(`Deepgram TTS failed (${res.status}): ${sanitizedError}`);
+    try {
+        // Generate TTS audio using Cartesia SDK with WAV output
+        const audioData = await client.tts.bytes({
+            modelId: 'sonic-2',
+            transcript: naturalText,
+            voice: { mode: 'id', id: voiceId },
+            language: 'en',
+            outputFormat: {
+                container: 'wav',  // Get WAV format directly from Cartesia
+                encoding: 'pcm_s16le',
+                sampleRate: 24000
+            }
+        });
+        
+        return Buffer.from(audioData);
+    } catch (error) {
+        const sanitizedError = sanitizeApiKey(error instanceof Error ? error.message : String(error));
+        throw new Error(`Cartesia TTS failed: ${sanitizedError}`);
     }
-    const ab = await res.arrayBuffer();
-    return Buffer.from(ab);
 }
+
 
 
 /**
@@ -797,7 +807,7 @@ Total Error Events: ${totalErrors}
             }
             
             // Generate TTS audio
-            const audioBuffer = await synthesizeWithDeepgramTTS(summaryText);
+            const audioBuffer = await synthesizeWithCartesiaTTS(summaryText);
             
             // Save audio file
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);

@@ -31,16 +31,10 @@ router.post('/speech-to-text', upload.single('audio'), async (req, res) => {
 
     // Convert buffer to readable stream
     const audioBuffer = req.file.buffer
-    const audioStream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(audioBuffer)
-        controller.close()
-      }
-    })
 
     // Transcribe audio using Deepgram
     const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
-      audioStream,
+      audioBuffer,
       {
         model: 'nova-2',
         language: 'en-US',

@@ -27,7 +27,7 @@ console.log('\n📋 Step 1: Checking Environment Variables...\n');
 const requiredEnvVars = {
   'MUX_TOKEN_ID': process.env.MUX_TOKEN_ID,
   'MUX_TOKEN_SECRET': process.env.MUX_TOKEN_SECRET,
-  'DEEPGRAM_API_KEY': process.env.DEEPGRAM_API_KEY,
+  'CARTESIA_API_KEY': process.env.CARTESIA_API_KEY,
   'ANTHROPIC_API_KEY': process.env.ANTHROPIC_API_KEY
 };
 
@@ -47,7 +47,7 @@ if (!allEnvVarsPresent) {
   console.error(`
 MUX_TOKEN_ID=your_mux_token_id
 MUX_TOKEN_SECRET=your_mux_token_secret
-DEEPGRAM_API_KEY=your_deepgram_api_key
+CARTESIA_API_KEY=your_cartesia_api_key
 ANTHROPIC_API_KEY=your_anthropic_api_key
   `);
   process.exit(1);
@@ -55,39 +55,39 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 
 console.log('\n✅ All environment variables configured\n');
 
-// Step 2: Test Deepgram TTS
-console.log('📋 Step 2: Testing Deepgram TTS...\n');
+import { CartesiaClient } from '@cartesia/cartesia-js';
 
-async function testDeepgram() {
+// Step 2: Test Cartesia TTS
+console.log('📋 Step 2: Testing Cartesia TTS...\n');
+
+async function testCartesia() {
   try {
-    const testText = "This is a test of the Deepgram text to speech system.";
-    const url = new URL('https://api.deepgram.com/v1/speak');
-    url.searchParams.set('model', 'aura-asteria-en');
-    url.searchParams.set('encoding', 'linear16');
-    url.searchParams.set('sample_rate', '24000');
-    url.searchParams.set('container', 'wav');
-
-    const res = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text: testText })
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Deepgram API error ${res.status}: ${errText}`);
-    }
-
-    const ab = await res.arrayBuffer();
-    const audioSize = Buffer.from(ab).length;
+    const testText = "This is a test of the Cartesia text to speech system.";
     
-    console.log(`✅ Deepgram TTS working (generated ${audioSize} bytes)\n`);
+    // Initialize Cartesia client
+    const client = new CartesiaClient({ apiKey: process.env.CARTESIA_API_KEY! });
+    
+    // Get voice configuration from environment
+    const voiceId = process.env.CARTESIA_VOICE_ID || 'f9836c6e-a0bd-460e-9d3c-f7299fa60f94'; // Default voice
+    
+    // Generate TTS audio using Cartesia SDK with WAV output
+    const audioData = await client.tts.bytes({
+        modelId: 'sonic-2',
+        transcript: testText,
+        voice: { mode: 'id', id: voiceId },
+        language: 'en',
+        outputFormat: {
+            container: 'wav',  // Get WAV format directly from Cartesia
+            encoding: 'pcm_s16le',
+            sampleRate: 24000
+        }
+    });
+    
+    const audioSize = Buffer.from(audioData).length;
+    console.log(`✅ Cartesia TTS working (generated ${audioSize} bytes)\n`);
     return true;
   } catch (error) {
-    console.error('❌ Deepgram TTS failed:', error);
+    console.error('❌ Cartesia TTS failed:', error);
     return false;
   }
 }
@@ -192,7 +192,7 @@ async function testAudioReport() {
 // Run all tests
 async function runAllTests() {
   const results = {
-    deepgram: await testDeepgram(),
+    cartesia: await testCartesia(),
     muxMcp: await testMuxMCP(),
     agent: await testAgent(),
     audioReport: await testAudioReport()
@@ -201,7 +201,7 @@ async function runAllTests() {
   console.log('\n' + '='.repeat(80));
   console.log('TEST RESULTS');
   console.log('='.repeat(80));
-  console.log(`Deepgram TTS:     ${results.deepgram ? '✅ PASS' : '❌ FAIL'}`);
+  console.log(`Cartesia TTS:      ${results.cartesia ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Mux MCP:          ${results.muxMcp ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Agent:            ${results.agent ? '✅ PASS' : '❌ FAIL'}`);
   console.log(`Audio Report:     ${results.audioReport ? '✅ PASS' : '❌ FAIL'}`);
