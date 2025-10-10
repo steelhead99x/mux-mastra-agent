@@ -63,10 +63,36 @@ Once started, you can access:
 ### Talking to the Video Analytics Assistant
 
 You can ask questions like:
-- "Show me how my videos performed this week"
-- "What errors happened in the last day?"
+
+**Basic Analytics:**
+- "Show me my recent video analytics"
+- "What are my top performing videos?"
+- "How many views did I get this week?"
+- "Show me video metrics for the last 30 days"
+
+**Error Analysis:**
+- "What errors happened in the last 24 hours?"
+- "Show me failed video uploads"
+- "Are there any streaming issues with my videos?"
+- "What playback errors occurred today?"
+
+**Performance Reports:**
 - "Create an audio report of my video performance"
+- "Generate a summary of my video analytics"
+- "Tell me about my video engagement rates"
+- "What's the overall health of my video content?"
+
+**Visual Data:**
 - "Make a chart showing my video views over time"
+- "Create a graph of my video engagement"
+- "Show me a chart of video errors by day"
+- "Generate a visualization of my video performance"
+
+**Specific Video Analysis:**
+- "Analyze the performance of video ID [your-video-id]"
+- "Show me details about my most recent upload"
+- "What's the quality score of my videos?"
+- "How long do people watch my videos on average?"
 
 ### Talking to the Media Manager Assistant
 
