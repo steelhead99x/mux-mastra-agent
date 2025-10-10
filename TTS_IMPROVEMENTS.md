@@ -9,10 +9,10 @@ Enhanced the Mux Analytics Agent to always return the audio URL prominently and 
 **File**: `backend/src/agents/mux-analytics-agent.ts`
 
 **Improvements**:
-- Added natural pauses using ellipses (`...`) throughout the text:
-  - Between paragraphs (`\n\n` → `... `)
-  - After colons (`: ` → `... `)
-  - Between sentences (`. ` → `... `)
+- Minimal text preprocessing - let Deepgram's AI handle natural pauses:
+  - Between paragraphs (`\n\n` → `. `) - converts to periods for natural flow
+  - Single line breaks (`\n` → ` `) - converts to spaces
+  - Removed aggressive ellipsis additions that caused stuttering
 - Upgraded audio quality settings:
   - Sample rate: 24kHz (high-quality audio)
   - Container: WAV (standard format)
@@ -20,10 +20,10 @@ Enhanced the Mux Analytics Agent to always return the audio URL prominently and 
 - Using Deepgram's Aura models for natural-sounding speech
 
 **Deepgram Best Practices Applied**:
-✅ Natural pauses with ellipses for conversational flow
+✅ Minimal preprocessing - trust Deepgram's natural interpretation
 ✅ High-quality sample rate (24kHz)
 ✅ Proper audio format configuration
-✅ Text preprocessing for better pronunciation
+✅ Smooth, non-stuttering speech output
 
 ### 2. Always Return Audio URL Prominently
 **File**: `backend/src/agents/mux-analytics-agent.ts`
@@ -139,9 +139,9 @@ No new environment variables required. Uses existing configuration:
 - Container: `wav` (standard audio format)
 
 **Text Preprocessing**:
-- Paragraph breaks → Natural pauses (`...`)
-- Colons → Thoughtful pauses (`...`)
-- Sentence breaks → Speaking pauses (`...`)
+- Paragraph breaks (`\n\n`) → Periods (`. `) for natural pauses
+- Single line breaks (`\n`) → Spaces for smooth flow
+- Minimal intervention - let Deepgram handle natural pacing
 
 ## Files Modified
 

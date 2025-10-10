@@ -225,7 +225,20 @@ if (!isPlaygroundMode) {
         return res.status(400).json({ error: 'Messages array is required' });
       }
       
-      // Set up streaming response headers
+      // Try to get stream before setting response headers
+      let stream;
+      try {
+        stream = await agent.streamVNext(messages);
+      } catch (agentError) {
+        console.error('[streamVNext] Agent execution failed:', agentError);
+        // Return error before headers are sent
+        return res.status(500).json({
+          error: agentError instanceof Error ? agentError.message : String(agentError),
+          stack: agentError instanceof Error ? agentError.stack : undefined
+        });
+      }
+      
+      // Set up streaming response headers AFTER successful agent call
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Transfer-Encoding': 'chunked',
@@ -235,17 +248,6 @@ if (!isPlaygroundMode) {
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       });
-      
-      let stream;
-      try {
-        stream = await agent.streamVNext(messages);
-      } catch (agentError) {
-        console.error('[streamVNext] Agent execution failed:', agentError);
-        res.status(500).json({
-          error: agentError instanceof Error ? agentError.message : String(agentError)
-        });
-        return;
-      }
       
       // Stream the response back to the client
       if (stream && stream.textStream) {

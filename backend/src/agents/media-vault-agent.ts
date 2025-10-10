@@ -101,9 +101,18 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
         throw new Error('DEEPGRAM_API_KEY not set in environment');
     }
     const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
+    
+    // Minimal text preprocessing - let Deepgram handle natural pauses
+    const naturalText = text
+        .replace(/\n\n/g, '. ')  // Convert paragraph breaks to periods for natural pauses
+        .replace(/\n/g, ' ')     // Single line breaks become spaces
+        .trim();
+    
     const url = new URL('https://api.deepgram.com/v1/speak');
     url.searchParams.set('model', model);
     url.searchParams.set('encoding', 'linear16');
+    url.searchParams.set('sample_rate', '24000');  // High-quality audio
+    url.searchParams.set('container', 'wav');       // Standard format
 
     const res = await fetch(url.toString(), {
         method: 'POST',
@@ -111,7 +120,7 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
             Authorization: `Token ${apiKey}`,
             'Content-Type': 'application/json',
         } as any,
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text: naturalText })
     } as any);
 
     if (!res.ok) {
@@ -1217,6 +1226,7 @@ const ttsWeatherTool = createTool({
             let mux: any = null;
             let playerUrl: string | undefined;
             let uploadId: string | undefined;
+            let assetId: string | undefined;
 
             try {
                 // Create upload using configurable method (MCP or REST API)
@@ -1272,8 +1282,8 @@ const ttsWeatherTool = createTool({
                         const retrievedAssetId = assetId || (uploadId ? await retrieveAssetIdFromUpload(uploadId) : undefined);
                         
                         if (!retrievedAssetId) {
-                            console.warn('[tts-weather-upload] Background: No asset ID available');
-                            return { assetId: uploadId, playbackId: undefined, status: 'processing' };
+                            console.warn('[tts-weather-upload] Background: No asset ID available yet (upload still processing)');
+                            return { assetId: undefined, playbackId: undefined, status: 'processing' };
                         }
                         
                         console.debug(`[tts-weather-upload] Background: Using asset ID: ${retrievedAssetId}`);
@@ -1301,12 +1311,12 @@ const ttsWeatherTool = createTool({
                         } else {
                             console.warn(`[tts-weather-upload] Background: Asset processing failed:`, errorMsg);
                         }
-                        return { assetId: uploadId, playbackId: undefined, status: 'processing', error: errorMsg };
+                        return { assetId: undefined, playbackId: undefined, status: 'processing', error: errorMsg };
                     }
                 })();
 
                 mux = {
-                    assetId: uploadId, // Use uploadId as initial assetId
+                    assetId: assetId, // Use the actual asset ID, not uploadId
                     playbackId: undefined, // Will be set by background processing
                     hlsUrl: undefined, // Will be set by background processing
                     playerUrl,
@@ -1359,7 +1369,7 @@ const ttsWeatherTool = createTool({
                 mux,
                 playbackUrl: undefined, // Will be set by background processing
                 playerUrl,
-                assetId: uploadId, // Use uploadId as initial assetId
+                assetId: assetId, // Use the actual asset ID, not uploadId
                 playbackId: undefined, // Will be set by background processing
                 message: success 
                     ? 'Audio weather report with static image and temperature chart generated successfully. Asset is processing in the background.'

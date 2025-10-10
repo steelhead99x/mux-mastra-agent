@@ -57,11 +57,11 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
     // Use high-quality Aura models for more natural speech
     const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
     
-    // Prepare text for more natural speech by adding pauses
+    // Minimal text preprocessing - let Deepgram handle natural pauses
+    // Only add pauses between major sections (double line breaks)
     const naturalText = text
-        .replace(/\n\n/g, '... ')  // Add pauses between paragraphs
-        .replace(/:\s/g, '... ')    // Add thoughtful pauses after colons
-        .replace(/\.\s+([A-Z])/g, '... $1')  // Add pauses between sentences
+        .replace(/\n\n/g, '. ')  // Convert paragraph breaks to periods for natural pauses
+        .replace(/\n/g, ' ')     // Single line breaks become spaces
         .trim();
     
     const url = new URL('https://api.deepgram.com/v1/speak');
@@ -508,65 +508,254 @@ const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL ||
  */
 const ttsAnalyticsReportTool = createTool({
     id: "tts-analytics-report",
-    description: "Generate a text-to-speech audio report from Mux analytics data and upload it to Mux. Returns a streaming URL for playback.",
+    description: "Generate a text-to-speech audio report from Mux analytics data and upload it to Mux. Returns a streaming URL for playback. Can focus on errors, general analytics, or both depending on the query. Supports relative time expressions like 'last 7 days' or Unix timestamp arrays.",
     inputSchema: z.object({
-        timeframe: z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for analysis period").optional(),
+        timeframe: z.union([
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for analysis period")
+        ]).optional(),
         includeAssetList: z.boolean().describe("Whether to include asset list in the report").optional(),
+        focusArea: z.enum(['general', 'errors', 'both']).describe("What to focus on: 'general' for overall analytics, 'errors' for error analysis, 'both' for comprehensive report").optional(),
     }),
     execute: async ({ context }) => {
         try {
-            const { timeframe, includeAssetList } = context as { timeframe?: number[]; includeAssetList?: boolean };
+            const { timeframe, includeAssetList, focusArea } = context as { timeframe?: string | number[]; includeAssetList?: boolean; focusArea?: 'general' | 'errors' | 'both' };
             
-            // Fetch analytics data
+            const actualFocusArea = focusArea || 'general';
+            
+            // Parse timeframe if it's a relative expression
+            let parsedTimeframe: number[] | undefined;
+            if (typeof timeframe === 'string') {
+                const { parseRelativeTimeframe } = await import('../tools/mux-analytics.js');
+                parsedTimeframe = parseRelativeTimeframe(timeframe);
+            } else if (Array.isArray(timeframe)) {
+                parsedTimeframe = timeframe;
+            }
+            
+            // Fetch analytics data based on focus area
             let analyticsResult: any;
-            try {
-                analyticsResult = await (muxAnalyticsTool as any).execute({ context: { timeframe } });
-            } catch (error) {
-                console.error('[tts-analytics-report] Analytics tool failed:', error);
-                analyticsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+            let errorsResult: any;
+            
+            // Fetch general analytics if needed
+            if (actualFocusArea === 'general' || actualFocusArea === 'both') {
+                try {
+                    analyticsResult = await (muxAnalyticsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                } catch (error) {
+                    console.error('[tts-analytics-report] Analytics tool failed:', error);
+                    analyticsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            }
+            
+            // Fetch error data if needed
+            if (actualFocusArea === 'errors' || actualFocusArea === 'both') {
+                try {
+                    errorsResult = await (muxErrorsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                } catch (error) {
+                    console.error('[tts-analytics-report] Errors tool failed:', error);
+                    errorsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
             }
             
             let summaryText: string;
             let timeRange: { start: string; end: string };
             
-            if (analyticsResult.success) {
-                const { metrics, analysis, timeRange: resultTimeRange } = analyticsResult;
-                timeRange = resultTimeRange;
-                // Format as text summary (under 1000 words)
-                summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
+            // Determine time range from either result
+            if (analyticsResult?.success) {
+                timeRange = analyticsResult.timeRange;
+            } else if (errorsResult?.success) {
+                timeRange = errorsResult.timeRange;
+            } else if (parsedTimeframe && parsedTimeframe.length === 2) {
+                timeRange = {
+                    start: new Date(parsedTimeframe[0] * 1000).toISOString(),
+                    end: new Date(parsedTimeframe[1] * 1000).toISOString()
+                };
             } else {
-                // Generate fallback report when analytics data is not available
-                console.log('[tts-analytics-report] Analytics data not available, generating fallback report');
-                timeRange = timeframe ? {
-                    start: new Date(timeframe[0] * 1000).toISOString(),
-                    end: new Date(timeframe[1] * 1000).toISOString()
-                } : {
+                timeRange = {
                     start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
                     end: new Date().toISOString()
                 };
+            }
+            
+            // Generate summary text based on focus area
+            if (actualFocusArea === 'errors' && errorsResult?.success) {
+                // Error-focused report
+                const { errors, totalErrors, platformBreakdown } = errorsResult;
                 
-                summaryText = `Streaming Analytics Audio Report for the Last 24 Hours:
+                summaryText = `Error Analysis Report for Paramount Plus Streaming:
 
-Total Views: Analytics data is currently unavailable, but your Mux account is configured and ready for monitoring.
+Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
 
-Platform Error Breakdown:
+Total Errors Detected: ${totalErrors || 0}
+
+`;
+                
+                if (totalErrors > 0) {
+                    summaryText += `Error Summary:\n`;
+                    summaryText += `Your streaming platform encountered ${totalErrors} errors during this period. `;
+                    
+                    // Add platform breakdown if available
+                    if (platformBreakdown && platformBreakdown.length > 0) {
+                        summaryText += `\n\nError Breakdown by Platform:\n`;
+                        platformBreakdown.slice(0, 5).forEach((platform: any, idx: number) => {
+                            const platformName = platform.field || platform.operating_system || 'Unknown Platform';
+                            const errorCount = platform.value || platform.error_count || 0;
+                            const errorPct = platform.error_percentage || 0;
+                            summaryText += `${idx + 1}. ${platformName}: ${errorCount} errors (${errorPct.toFixed(1)}% error rate)\n`;
+                        });
+                    }
+                    
+                    // Add top errors
+                    if (errors && errors.length > 0) {
+                        summaryText += `\n\nTop Error Types:\n`;
+                        errors.slice(0, 5).forEach((error: any, idx: number) => {
+                            const errorType = error.error_type || error.type || 'Unknown Error';
+                            const errorCount = error.count || 1;
+                            const errorMsg = error.error_message || error.message || '';
+                            summaryText += `${idx + 1}. ${errorType}: ${errorCount} occurrences`;
+                            if (errorMsg) {
+                                summaryText += ` - ${errorMsg.slice(0, 100)}`;
+                            }
+                            summaryText += `\n`;
+                        });
+                    }
+                    
+                    summaryText += `\n\nRecommendations:\n`;
+                    summaryText += `1. Investigate the most common error types to identify root causes\n`;
+                    summaryText += `2. Focus on platforms with the highest error rates\n`;
+                    summaryText += `3. Review player configuration and encoding settings\n`;
+                    summaryText += `4. Monitor error trends over time to catch regressions early\n`;
+                } else {
+                    summaryText += `Great news! No errors were detected during this time period. Your streaming infrastructure is performing excellently.\n`;
+                    summaryText += `\nBest Practices:\n`;
+                    summaryText += `- Continue monitoring error rates regularly\n`;
+                    summaryText += `- Set up alerts for error rate spikes\n`;
+                    summaryText += `- Test new content on multiple platforms before wide release\n`;
+                }
+                
+            } else if (actualFocusArea === 'both' && analyticsResult?.success && errorsResult?.success) {
+                // Comprehensive report with both analytics and errors
+                const { metrics, analysis } = analyticsResult;
+                const { totalErrors, platformBreakdown, errors } = errorsResult;
+                
+                // Check if there are actual errors - if so, use a modified summary approach
+                if (totalErrors > 0) {
+                    // Modified summary that acknowledges errors upfront
+                    summaryText = `Hello! Here's your Mux Video Streaming Analytics Report.
+                    
+Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
+
+Overall Performance Summary:
+Your streaming infrastructure had ${metrics.total_views || 0} views during this period, with ${totalErrors} error events detected. Let me break down the details.
+
+Error Analysis:
+Total Error Events: ${totalErrors}
+
+`;
+                    
+                    // Add detailed error breakdown
+                    if (errors && errors.length > 0) {
+                        summaryText += `Detailed Error Breakdown:\n`;
+                        errors.slice(0, 5).forEach((error: any, idx: number) => {
+                            const errorType = error.error_type || error.type || 'Unknown Error';
+                            const errorCount = error.count || 1;
+                            const errorMsg = error.error_message || error.message || '';
+                            summaryText += `${idx + 1}. ${errorType}: ${errorCount} occurrences`;
+                            if (errorMsg) {
+                                summaryText += ` - ${errorMsg.slice(0, 100)}`;
+                            }
+                            summaryText += `\n`;
+                        });
+                        summaryText += `\n`;
+                    }
+                    
+                    // Add platform breakdown
+                    if (platformBreakdown && platformBreakdown.length > 0) {
+                        summaryText += `Platform Error Distribution:\n`;
+                        platformBreakdown.slice(0, 5).forEach((platform: any, idx: number) => {
+                            const platformName = platform.field || platform.operating_system || 'Unknown';
+                            const errorCount = platform.value || platform.error_count || 0;
+                            summaryText += `${idx + 1}. ${platformName}: ${errorCount} errors\n`;
+                        });
+                        summaryText += `\n`;
+                    }
+                    
+                    // Add key metrics
+                    summaryText += `Key Performance Metrics:\n`;
+                    if (metrics.total_views !== undefined) {
+                        summaryText += `Total Views: ${metrics.total_views.toLocaleString()}\n`;
+                    }
+                    if (metrics.total_error_percentage !== undefined) {
+                        summaryText += `Error Rate: ${metrics.total_error_percentage.toFixed(2)}%\n`;
+                    }
+                    if (metrics.total_rebuffer_percentage !== undefined) {
+                        summaryText += `Rebuffer Rate: ${metrics.total_rebuffer_percentage.toFixed(2)}%\n`;
+                    }
+                    if (metrics.average_startup_time_ms !== undefined) {
+                        summaryText += `Avg Startup Time: ${(metrics.average_startup_time_ms / 1000).toFixed(2)} seconds\n`;
+                    }
+                    summaryText += `\n`;
+                    
+                    // Add recommendations if issues exist
+                    if (analysis.issues && analysis.issues.length > 0) {
+                        summaryText += `Issues Identified:\n`;
+                        analysis.issues.forEach((issue: string, idx: number) => {
+                            summaryText += `${idx + 1}. ${issue}\n`;
+                        });
+                        summaryText += `\n`;
+                    }
+                    
+                    if (analysis.recommendations && analysis.recommendations.length > 0) {
+                        summaryText += `Recommendations:\n`;
+                        analysis.recommendations.forEach((rec: string, idx: number) => {
+                            summaryText += `${idx + 1}. ${rec}\n`;
+                        });
+                        summaryText += `\n`;
+                    }
+                    
+                    summaryText += `Health Score: ${analysis.healthScore}/100\n\n`;
+                    summaryText += `That concludes your comprehensive analytics report. Thank you for listening!`;
+                    
+                } else {
+                    // No errors detected - use the standard summary
+                    summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
+                    
+                    // Append error information showing zero errors
+                    summaryText += `\n\nError Analysis:\n`;
+                    summaryText += `Total Errors: 0\n`;
+                    summaryText += `Excellent! No errors were detected during this time period.\n`;
+                }
+                
+            } else if (analyticsResult?.success) {
+                // General analytics report
+                const { metrics, analysis } = analyticsResult;
+                summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
+                
+            } else {
+                // Fallback report when no data is available
+                console.log('[tts-analytics-report] No data available, generating fallback report');
+                
+                summaryText = `Streaming Analytics Audio Report:
+
+Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
+
+Status: Analytics data is currently unavailable, but your Mux account is configured and ready for monitoring.
+
+Platform Error Monitoring:
 - Error monitoring is active and ready to detect issues
 - No critical errors detected in the monitoring system
 - All streaming infrastructure appears operational
 
-Viewing Highlights:
+Infrastructure Status:
 - Mux streaming platform is properly configured
 - Analytics collection is enabled and monitoring
 - Ready to capture detailed viewer engagement data
 
 Key Insights:
 1. Mux account is properly configured with valid credentials
-2. Analytics monitoring is active and ready
+2. Analytics and error monitoring is active and ready
 3. Streaming infrastructure is operational
 
-Recommendation: Continue monitoring your streaming performance. The analytics system is ready to provide detailed insights as your content receives views.
-
-This report covers the monitoring status for the last 24 hours, confirming that your Mux streaming setup is ready for production use.`;
+Recommendation: Continue monitoring your streaming performance. The analytics system is ready to provide detailed insights as your content receives views.`;
             }
             
             // Optionally include asset information
@@ -628,20 +817,22 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                     playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
                     console.debug('[tts-analytics-report] Player URL created with asset ID');
                 } else if (uploadId) {
-                    // If no assetId yet, wait for asset creation
-                    console.debug('[tts-analytics-report] No assetId yet, starting background asset creation polling...');
-                    (async () => {
-                        try {
-                            const retrievedAssetId = await waitForAssetCreation(uploadId);
-                            if (retrievedAssetId) {
-                                assetId = retrievedAssetId;
-                                console.debug(`[tts-analytics-report] Background: Asset created with ID: ${assetId}`);
-                                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                            }
-                        } catch (error) {
-                            console.warn('[tts-analytics-report] Background asset creation polling failed:', error);
+                    // If no assetId yet, wait for asset creation (BLOCKING - must complete before returning response)
+                    console.debug('[tts-analytics-report] No assetId yet, waiting for asset creation...');
+                    try {
+                        const retrievedAssetId = await waitForAssetCreation(uploadId);
+                        if (retrievedAssetId) {
+                            assetId = retrievedAssetId;
+                            playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+                            console.debug(`[tts-analytics-report] Asset created with ID: ${assetId}`);
+                            console.debug(`[tts-analytics-report] Player URL: ${playerUrl}`);
+                        } else {
+                            console.warn('[tts-analytics-report] Asset creation timed out, returning with uploadId only');
                         }
-                    })();
+                    } catch (error) {
+                        console.warn('[tts-analytics-report] Asset creation polling failed:', error);
+                        // Continue with undefined assetId - frontend can poll later
+                    }
                 }
             } catch (uploadError) {
                 console.error('[tts-analytics-report] Mux upload failed:', uploadError);
@@ -658,14 +849,25 @@ This report covers the monitoring status for the last 24 hours, confirming that 
             }
             
             // Always include audio URL prominently in response
+            // Ensure we have a valid player URL to return
+            // CRITICAL: Only use real Mux asset IDs, never make up fake ones!
+            const finalPlayerUrl = playerUrl || (assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined);
+            
+            // Validate assetId format (Mux asset IDs are long alphanumeric strings)
+            if (assetId && assetId.length < 20) {
+                console.warn(`[tts-analytics-report] Invalid assetId format: ${assetId} (too short, likely fake)`);
+                // Don't use this invalid assetId
+                assetId = undefined;
+            }
+            
             let responseMessage = '🎧 **AUDIO REPORT READY**';
             
-            if (playerUrl) {
-                responseMessage += `\n\n▶️ Listen to your analytics report: ${playerUrl}`;
+            if (finalPlayerUrl && assetId) {
+                responseMessage += `\n\n▶️ Listen to your analytics report: ${finalPlayerUrl}`;
                 responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
-            } else if (assetId) {
-                const fallbackUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                responseMessage += `\n\n▶️ Listen to your analytics report: ${fallbackUrl}`;
+                responseMessage += `\n\n✅ Asset ID: ${assetId}`;
+            } else if (finalPlayerUrl) {
+                responseMessage += `\n\n▶️ Listen to your analytics report: ${finalPlayerUrl}`;
                 responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
             } else {
                 responseMessage += `\n\nYour audio analytics report has been generated. The playback URL will be available shortly.`;
@@ -677,12 +879,22 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 success: true,
                 summaryText,
                 wordCount: summaryText.split(/\s+/).length,
-                localAudioFile: audioPath,
-                playerUrl: playerUrl || (assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined),
-                assetId,
-                analysis: analyticsResult.success ? analyticsResult.analysis : null,
+                // Internal use only - not for display to users
+                _internalAudioPath: audioPath,
+                // PRIMARY FIELDS FOR DISPLAY (agent should use these):
+                playerUrl: finalPlayerUrl,
+                audioUrl: finalPlayerUrl,
+                assetId: assetId || undefined, // Ensure undefined if invalid
                 message: responseMessage,
-                audioUrl: playerUrl || (assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined)
+                // Analysis data
+                analysis: analyticsResult?.success ? analyticsResult.analysis : null,
+                errorData: errorsResult?.success ? {
+                    totalErrors: errorsResult.totalErrors,
+                    platformBreakdown: errorsResult.platformBreakdown,
+                    errors: errorsResult.errors
+                } : null,
+                focusArea: actualFocusArea,
+                timeRange
             };
             
         } catch (error) {
@@ -716,7 +928,27 @@ function buildSystemPrompt() {
         'AUDIO SUMMARY REQUIREMENT:',
         '- ALWAYS generate an AI audio summary when analyzing data over any time period',
         '- For ANY query involving time ranges (last 24 hours, last 7 days, specific dates, etc.), automatically use the ttsAnalyticsReportTool',
-        '- ALWAYS include the audio playback URL prominently in your response - it is the PRIMARY output',
+        '- When user asks about ERRORS specifically (e.g., "summarize my errors", "error analysis"), use ttsAnalyticsReportTool with focusArea="errors"',
+        '- When user asks for COMPREHENSIVE or COMPLETE reports, use ttsAnalyticsReportTool with focusArea="both"',
+        '- For GENERAL analytics queries, use ttsAnalyticsReportTool with focusArea="general" (default)',
+        '',
+        'AUDIO URL DISPLAY RULES (CRITICAL):',
+        '- The ttsAnalyticsReportTool returns a "message" field - USE THIS DIRECTLY in your response',
+        '- If constructing your own message, use ONLY the "playerUrl" or "audioUrl" field from the tool response',
+        '- The correct URL format is ALWAYS: https://www.streamingportfolio.com/player?assetId=<ASSET_ID>',
+        '- NEVER use fields starting with underscore (like "_internalAudioPath") - these are internal only',
+        '- NEVER create URLs like https://mux.com/tts/... or any URL containing .wav files - these are incorrect',
+        '- If you see a .wav file path anywhere in the response, completely ignore it',
+        '- The playerUrl/audioUrl fields contain the ONLY correct user-facing URL',
+        '',
+        'ASSET ID RULES (CRITICAL - DO NOT VIOLATE):',
+        '- Asset IDs are provided by Mux and are LONG alphanumeric strings (40+ characters)',
+        '- NEVER create or invent asset IDs - only use assetId values from tool responses',
+        '- NEVER use filenames, timestamps, or report names as asset IDs',
+        '- Examples of REAL asset IDs: "XPwNih9O9wiNcUtNlHdN8Gdx5rG2pMoquWPBm1uEizo", "wpankyH1Ij2j9UrauveLE013fmlX8ktf00B01KZqxOMacE"',
+        '- Examples of FAKE asset IDs (NEVER use): "error-report-2025-10-10", "analytics-report", "audio-123"',
+        '- If assetId is undefined or missing from tool response, say "Asset ID not yet available" - do NOT make one up',
+        '- Display format: "🎧 Audio Report URL: https://www.streamingportfolio.com/player?assetId=..."',
         '- The audio URL must be displayed at the top of your response in a clear, visible format',
         '- Include both text analysis AND the audio playback URL in every response',
         '- The audio summary should be concise (under 1000 words) and highlight key findings',
