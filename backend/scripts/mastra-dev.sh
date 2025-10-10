@@ -25,7 +25,11 @@ fi
 
 # Load environment variables and start Mastra
 echo "[mastra-dev] Loading environment from: $OUTPUT_ENV"
-export $(cat "$OUTPUT_ENV" | grep -v '^#' | xargs)
+
+# Use a safer method to load environment variables
+set -a  # automatically export all variables
+source "$OUTPUT_ENV"
+set +a  # stop automatically exporting
 
 # Verify critical environment variables
 if [ -z "$ANTHROPIC_API_KEY" ]; then
