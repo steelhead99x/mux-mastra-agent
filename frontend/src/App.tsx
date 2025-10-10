@@ -45,10 +45,10 @@ export default function App() {
         </div>
       </header>
 
-      <main className="relative z-10 max-w-3xl md:max-w-5xl mx-auto p-6 pb-16">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-          {/* Video (1/3 on md+) */}
-          <div className="md:col-span-1 order-2 md:order-1">
+      <main className="relative z-10 max-w-4xl lg:max-w-7xl mx-auto p-4 md:p-6 pb-16">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6 items-start">
+          {/* Video (1/5 on lg+) - Smaller video section */}
+          <div className="lg:col-span-1 order-2 lg:order-1">
             <div className="card p-4 md:p-6">
               <Suspense fallback={
                 <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
@@ -65,9 +65,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* Chat (2/3 on md+) */}
-          <div className="md:col-span-2 order-1 md:order-2">
-            <div className="card p-6 md:p-8">
+          {/* Chat (4/5 on lg+) - Much wider agent window */}
+          <div className="lg:col-span-4 order-1 lg:order-2">
+            <div className="card p-4 md:p-6 lg:p-8">
               <Suspense fallback={
                 <div className="flex flex-col gap-4">
                   <div className="animate-pulse">

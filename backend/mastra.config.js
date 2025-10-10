@@ -11,7 +11,6 @@ export default {
   outDir: './dist',
   entry: './src/index.ts',
   agents: {
-    mediaVaultAgent: './src/agents/media-vault-agent.ts',
     muxAnalyticsAgent: './src/agents/mux-analytics-agent.ts'
   },
   tools: {

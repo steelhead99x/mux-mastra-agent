@@ -310,8 +310,8 @@ export const muxAnalyticsTool = createTool({
                     const metricsToTry = [
                         'video_startup_failure_percentage',
                         'video_startup_time',
-                        'video_rebuffer_percentage',
-                        'video_error_percentage'
+                        'rebuffer_percentage',
+                        'playback_failure_percentage'
                     ];
                     
                     for (const metricId of metricsToTry) {
@@ -527,8 +527,7 @@ export const muxVideoViewsTool = createTool({
                 try {
                     const endpointsToTry = [
                         'list_data_video_views',
-                        'get_data_video_views',
-                        'list_video_views'
+                        'retrieve_data_video_views'
                     ];
                     
                     for (const endpoint of endpointsToTry) {
@@ -666,9 +665,7 @@ export const muxErrorsTool = createTool({
             if (!errorsData && tools['invoke_api_endpoint']) {
                 try {
                     const endpointsToTry = [
-                        'list_data_errors',
-                        'get_data_errors',
-                        'list_errors'
+                        'list_data_errors'
                     ];
                     
                     for (const endpoint of endpointsToTry) {
@@ -838,8 +835,76 @@ export const muxErrorsTool = createTool({
 });
 
 /**
+ * Format numbers for natural speech (converts numerals to words where appropriate)
+ */
+function formatNumberForSpeech(num: number): string {
+    // Convert small numbers to words for more natural speech
+    const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+    if (num >= 0 && num <= 10) {
+        return words[num];
+    }
+    // For larger numbers, use formatted string with proper separators
+    return num.toLocaleString('en-US');
+}
+
+/**
+ * Format date for natural speech (macOS and cross-platform compatible)
+ * Converts dates to spoken format like "January fifteenth, twenty twenty-five"
+ */
+function formatDateForSpeech(date: Date): string {
+    const month = date.toLocaleDateString('en-US', { month: 'long' });
+    const day = date.getDate();
+    const year = date.getFullYear();
+    
+    // Convert day to ordinal words for natural speech
+    const dayOrdinals: { [key: number]: string } = {
+        1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth',
+        6: 'sixth', 7: 'seventh', 8: 'eighth', 9: 'ninth', 10: 'tenth',
+        11: 'eleventh', 12: 'twelfth', 13: 'thirteenth', 14: 'fourteenth', 15: 'fifteenth',
+        16: 'sixteenth', 17: 'seventeenth', 18: 'eighteenth', 19: 'nineteenth', 20: 'twentieth',
+        21: 'twenty-first', 22: 'twenty-second', 23: 'twenty-third', 24: 'twenty-fourth', 25: 'twenty-fifth',
+        26: 'twenty-sixth', 27: 'twenty-seventh', 28: 'twenty-eighth', 29: 'twenty-ninth', 30: 'thirtieth', 31: 'thirty-first'
+    };
+    
+    const dayWord = dayOrdinals[day] || `${day}th`;
+    
+    // Break year into parts for natural pronunciation (e.g., "twenty twenty-five" instead of "two thousand twenty-five")
+    let yearSpeech: string;
+    if (year >= 2000 && year < 2010) {
+        yearSpeech = `two thousand ${year % 10 === 0 ? '' : formatNumberForSpeech(year % 10)}`.trim();
+    } else if (year >= 2010 && year < 2100) {
+        const firstPart = Math.floor(year / 100);
+        const secondPart = year % 100;
+        yearSpeech = `${firstPart === 20 ? 'twenty' : formatNumberForSpeech(firstPart)} ${secondPart < 10 ? 'oh ' : ''}${formatNumberForSpeech(secondPart)}`.trim();
+    } else {
+        yearSpeech = year.toString();
+    }
+    
+    return `${month} ${dayWord}, ${yearSpeech}`;
+}
+
+/**
+ * Format time duration for natural speech
+ */
+function formatDurationForSpeech(hours: number, minutes: number): string {
+    const parts: string[] = [];
+    
+    if (hours > 0) {
+        const hourWord = hours === 1 ? 'hour' : 'hours';
+        parts.push(`${formatNumberForSpeech(hours)} ${hourWord}`);
+    }
+    
+    if (minutes > 0 || hours === 0) {
+        const minuteWord = minutes === 1 ? 'minute' : 'minutes';
+        parts.push(`${formatNumberForSpeech(minutes)} ${minuteWord}`);
+    }
+    
+    return parts.join(' and ');
+}
+
+/**
  * Format analytics data into a concise, conversational text summary (under 1000 words)
- * Optimized for natural-sounding text-to-speech output
+ * Optimized for natural-sounding text-to-speech output with enhanced macOS compatibility
  */
 export function formatAnalyticsSummary(
     metrics: any,
@@ -848,100 +913,118 @@ export function formatAnalyticsSummary(
 ): string {
     const parts: string[] = [];
     
-    // Conversational header
+    // Conversational header with natural pause
     parts.push(`Hello! Here's your Mux Video Streaming Analytics Report.`);
+    parts.push('');  // Empty line creates natural pause in TTS
     
     const startDate = new Date(timeRange.start);
     const endDate = new Date(timeRange.end);
-    const startReadable = startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    const endReadable = endDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const startReadable = formatDateForSpeech(startDate);
+    const endReadable = formatDateForSpeech(endDate);
     
-    parts.push(`This report covers the time period from ${startReadable} to ${endReadable}.`);
+    parts.push(`This report covers the period from ${startReadable}, to ${endReadable}.`);
     parts.push('');
     
-    // Health Score - more conversational
-    parts.push(`Let's start with your overall health score... which is ${analysis.healthScore} out of 100.`);
+    // Health Score - more conversational with natural pause
+    parts.push(`Let's start with your overall health score, which is ${formatNumberForSpeech(analysis.healthScore)} out of 100.`);
     parts.push(analysis.summary);
     parts.push('');
     
-    // Key Metrics - conversational style
+    // Key Metrics - conversational style with clearer transitions
     parts.push('Now, let me walk you through the key performance indicators.');
+    parts.push('');
     
     if (metrics.total_views !== undefined) {
-        parts.push(`First, you had a total of ${metrics.total_views.toLocaleString()} views during this period.`);
+        const views = metrics.total_views;
+        const viewsText = views > 10 ? views.toLocaleString('en-US') : formatNumberForSpeech(views);
+        const viewWord = views === 1 ? 'view' : 'views';
+        parts.push(`First, you had a total of ${viewsText} ${viewWord} during this period.`);
     }
     
     if (metrics.total_playing_time_seconds !== undefined) {
         const hours = Math.floor(metrics.total_playing_time_seconds / 3600);
         const minutes = Math.floor((metrics.total_playing_time_seconds % 3600) / 60);
-        parts.push(`Your viewers watched for a combined ${hours} hours and ${minutes} minutes.`);
+        const durationText = formatDurationForSpeech(hours, minutes);
+        parts.push(`Your viewers watched for a combined ${durationText}.`);
     }
     
     if (metrics.average_startup_time_ms !== undefined) {
-        const startupSeconds = (metrics.average_startup_time_ms / 1000).toFixed(1);
-        parts.push(`Videos took an average of ${startupSeconds} seconds to start playing.`);
+        const startupSeconds = (metrics.average_startup_time_ms / 1000);
+        const secondsRounded = startupSeconds.toFixed(1);
+        // Pronounce decimal naturally
+        const secondsText = secondsRounded.replace('.', ' point ');
+        parts.push(`Videos took an average of ${secondsText} seconds to start playing.`);
     }
     
     if (metrics.total_rebuffer_percentage !== undefined) {
-        const rebufferPct = metrics.total_rebuffer_percentage.toFixed(1);
+        const rebufferPct = metrics.total_rebuffer_percentage.toFixed(1).replace('.', ' point ');
         if (metrics.total_rebuffer_percentage < 2) {
-            parts.push(`Rebuffering was minimal at just ${rebufferPct} percent... that's excellent!`);
+            parts.push(`Rebuffering was minimal at just ${rebufferPct} percent. That's excellent!`);
         } else if (metrics.total_rebuffer_percentage < 5) {
-            parts.push(`The rebuffering rate was ${rebufferPct} percent... which is within acceptable range.`);
+            parts.push(`The rebuffering rate was ${rebufferPct} percent, which is within acceptable range.`);
         } else {
-            parts.push(`The rebuffering rate was ${rebufferPct} percent... which needs attention.`);
+            parts.push(`The rebuffering rate was ${rebufferPct} percent, which needs attention.`);
         }
     }
     
     if (metrics.total_error_percentage !== undefined) {
-        const errorPct = metrics.total_error_percentage.toFixed(1);
+        const errorPct = metrics.total_error_percentage.toFixed(1).replace('.', ' point ');
         if (metrics.total_error_percentage < 1) {
             parts.push(`Error rate was excellent at just ${errorPct} percent.`);
         } else if (metrics.total_error_percentage < 3) {
-            parts.push(`Error rate was ${errorPct} percent... that's acceptable but could be improved.`);
+            parts.push(`Error rate was ${errorPct} percent. That's acceptable, but could be improved.`);
         } else {
-            parts.push(`Error rate was ${errorPct} percent... which definitely needs investigation.`);
+            parts.push(`Error rate was ${errorPct} percent, which definitely needs investigation.`);
         }
     }
     parts.push('');
     
-    // Issues - more conversational
+    // Issues - more conversational with clearer enumeration
     if (analysis.issues.length > 0) {
+        parts.push('');  // Natural pause before issues section
+        const issueCount = formatNumberForSpeech(analysis.issues.length);
         if (analysis.issues.length === 1) {
             parts.push('I identified one issue that needs your attention.');
         } else {
-            parts.push(`I found ${analysis.issues.length} issues that need your attention.`);
+            parts.push(`I found ${issueCount} issues that need your attention.`);
         }
+        parts.push('');
         
         analysis.issues.forEach((issue, i) => {
-            parts.push(`Issue number ${i + 1}... ${issue}`);
+            const issueNum = formatNumberForSpeech(i + 1);
+            parts.push(`Issue ${issueNum}: ${issue}`);
         });
         parts.push('');
     }
     
-    // Recommendations - conversational
+    // Recommendations - conversational with natural flow
     if (analysis.recommendations.length > 0) {
+        parts.push('');  // Natural pause before recommendations
+        const recCount = formatNumberForSpeech(analysis.recommendations.length);
         if (analysis.recommendations.length === 1) {
             parts.push('Here is my recommendation to improve performance.');
         } else {
-            parts.push(`I have ${analysis.recommendations.length} recommendations to improve your streaming performance.`);
+            parts.push(`I have ${recCount} recommendations to improve your streaming performance.`);
         }
+        parts.push('');
         
         analysis.recommendations.forEach((rec, i) => {
-            parts.push(`Recommendation ${i + 1}... ${rec}`);
+            const recNum = formatNumberForSpeech(i + 1);
+            parts.push(`Recommendation ${recNum}: ${rec}`);
         });
         parts.push('');
     }
     
-    // Closing summary - conversational tone
+    // Closing summary - conversational tone with natural pauses
+    parts.push('');  // Natural pause before conclusion
     if (analysis.healthScore >= 90) {
-        parts.push('Overall... your streaming infrastructure is performing exceptionally well! Keep up the great work and continue monitoring for any changes in traffic patterns or new device types.');
+        parts.push('Overall, your streaming infrastructure is performing exceptionally well! Keep up the great work, and continue monitoring for any changes in traffic patterns or new device types.');
     } else if (analysis.healthScore >= 75) {
-        parts.push('Overall... your performance is good, with just some areas for optimization. I recommend addressing the items above to improve your user experience.');
+        parts.push('Overall, your performance is good, with just some areas for optimization. I recommend addressing the items above to improve your user experience.');
     } else if (analysis.healthScore >= 50) {
-        parts.push('Overall... your performance needs some improvement. I suggest focusing on the critical issues first, particularly those affecting playback reliability.');
+        parts.push('Overall, your performance needs some improvement. I suggest focusing on the critical issues first, particularly those affecting playback reliability.');
     } else {
-        parts.push('I need to be honest with you... this requires critical attention. Multiple performance issues were detected that are significantly impacting user experience. Please prioritize immediate remediation of these issues.');
+        parts.push('I need to be honest with you. This requires critical attention. Multiple performance issues were detected that are significantly impacting user experience. Please prioritize immediate remediation of these issues.');
     }
     
     parts.push('');
@@ -954,7 +1037,7 @@ export function formatAnalyticsSummary(
     if (wordCount > 1000) {
         // Truncate to ~950 words to be safe
         const words = summary.split(/\s+/).slice(0, 950);
-        return words.join(' ') + '... This summary has been truncated to stay under one thousand words. Thank you for listening.';
+        return words.join(' ') + '. This summary has been truncated to stay under one thousand words. Thank you for listening.';
     }
     
     return summary;

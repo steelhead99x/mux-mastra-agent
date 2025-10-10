@@ -30,7 +30,6 @@ import { Mastra } from '@mastra/core';
 import express from 'express';
 import cors from 'cors';
 import { muxAnalyticsAgent } from './agents/mux-analytics-agent.js';
-import { mediaVaultAgent } from './agents/media-vault-agent.js';
 import { resolve } from 'path';
 
 // Set telemetry flag to suppress warnings when not using Mastra server environment
@@ -45,7 +44,6 @@ console.log('[Mastra] Mode:', isPlaygroundMode ? 'Playground' : isCustomMode ? '
 // Create agents configuration
 const agentsConfig = { 
   'mux-analytics': muxAnalyticsAgent,
-  'media-vault': mediaVaultAgent,
 };
 
 const mastra = new Mastra({
@@ -238,12 +236,17 @@ if (!isPlaygroundMode) {
         });
       }
       
+      // Increase timeout for long-running streams
+      req.setTimeout(300000); // 5 minutes
+      res.setTimeout(300000); // 5 minutes
+      
       // Set up streaming response headers AFTER successful agent call
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
         'Transfer-Encoding': 'chunked',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
@@ -252,16 +255,25 @@ if (!isPlaygroundMode) {
       // Stream the response back to the client
       if (stream && stream.textStream) {
         try {
+          let chunkCount = 0;
           for await (const chunk of stream.textStream) {
             if (chunk && typeof chunk === 'string') {
+              chunkCount++;
               res.write(chunk);
+              // Flush the buffer to send data immediately
+              if (typeof (res as any).flush === 'function') {
+                (res as any).flush();
+              }
             }
           }
+          console.log(`[streamVNext] Stream completed successfully with ${chunkCount} chunks`);
           res.end();
         } catch (streamError) {
           console.error('[streamVNext] Stream error:', streamError);
-          res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
-          res.end();
+          // Don't write error to stream, just end cleanly
+          if (!res.writableEnded) {
+            res.end();
+          }
         }
       } else if (stream && stream.text) {
         res.write(stream.text);
@@ -272,10 +284,17 @@ if (!isPlaygroundMode) {
       }
     } catch (error: any) {
       console.error('[streamVNext] Error:', error);
-      res.status(500).json({
-        error: error?.message || String(error),
-        timestamp: new Date().toISOString()
-      });
+      // If headers already sent, can't send JSON - just end the response
+      if (res.headersSent) {
+        if (!res.writableEnded) {
+          res.end();
+        }
+      } else {
+        res.status(500).json({
+          error: error?.message || String(error),
+          timestamp: new Date().toISOString()
+        });
+      }
     }
   });
   
@@ -314,6 +333,10 @@ if (!isPlaygroundMode) {
         return;
       }
   
+      // Increase timeout for long-running streams
+      req.setTimeout(300000); // 5 minutes
+      res.setTimeout(300000); // 5 minutes
+      
       // Handle the streaming response properly
       if (stream && stream.textStream) {
         // This is a proper streaming response
@@ -322,6 +345,7 @@ if (!isPlaygroundMode) {
           'Transfer-Encoding': 'chunked',
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type',
@@ -335,16 +359,21 @@ if (!isPlaygroundMode) {
               chunkCount++;
               totalContent += chunk;
               res.write(chunk);
+              // Flush the buffer to send data immediately
+              if (typeof (res as any).flush === 'function') {
+                (res as any).flush();
+              }
             }
           }
           console.log(`[streamVNext] Stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
         } catch (streamError) {
           console.error('[streamVNext] Stream error:', streamError);
-          // Write error as text chunk
-          res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+          // Don't write error to stream after it's already failing
         }
   
-        res.end();
+        if (!res.writableEnded) {
+          res.end();
+        }
       } else if (stream.fullStream) {
         // Handle fullStream format
         res.writeHead(200, {

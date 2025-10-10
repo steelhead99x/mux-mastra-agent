@@ -47,7 +47,7 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-// Generate TTS with Deepgram - Enhanced for natural-sounding speech
+// Generate TTS with Deepgram - Enhanced for natural-sounding speech on macOS
 async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!validateApiKey(apiKey, 'DEEPGRAM_API_KEY')) {
@@ -55,21 +55,27 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
     }
     
     // Use high-quality Aura models for more natural speech
+    // aura-asteria-en: Clear, friendly female voice (default)
+    // aura-athena-en: Professional female voice
+    // aura-helios-en: Clear male voice
     const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
     
-    // Minimal text preprocessing - let Deepgram handle natural pauses
-    // Only add pauses between major sections (double line breaks)
+    // Enhanced text preprocessing for natural speech flow
+    // Preserve intentional pauses while ensuring clean speech
     const naturalText = text
-        .replace(/\n\n/g, '. ')  // Convert paragraph breaks to periods for natural pauses
-        .replace(/\n/g, ' ')     // Single line breaks become spaces
+        .replace(/\n\n+/g, ', ')  // Convert paragraph breaks to commas for natural pauses
+        .replace(/\n/g, ' ')      // Single line breaks become spaces
+        .replace(/\.\.\./g, ',')  // Convert ellipsis to comma for better pronunciation
+        .replace(/\s+/g, ' ')     // Normalize whitespace
+        .replace(/([a-z])([A-Z])/g, '$1 $2')  // Add space between camelCase words
         .trim();
     
     const url = new URL('https://api.deepgram.com/v1/speak');
     url.searchParams.set('model', model);
-    url.searchParams.set('encoding', 'linear16');
-    url.searchParams.set('sample_rate', '24000');  // High-quality audio
-    url.searchParams.set('container', 'wav');       // Standard format
-
+    url.searchParams.set('encoding', 'linear16');  // Uncompressed PCM for best quality
+    url.searchParams.set('sample_rate', '24000');  // High-quality audio, macOS compatible
+    url.searchParams.set('container', 'wav');      // Standard WAV format, universally supported
+    
     const res = await fetch(url.toString(), {
         method: 'POST',
         headers: {
@@ -270,7 +276,7 @@ async function waitForAssetCreation(uploadId: string): Promise<string | undefine
  * Create Mux upload using MCP (preferred) or REST API fallback
  * Defaults to MCP unless explicitly disabled
  */
-async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string }> {
+async function createMuxUpload(imageUrl?: string): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string }> {
     // Default to MCP unless explicitly set to 'false'
     const useMcp = process.env.USE_MUX_MCP !== 'false';
     const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
@@ -306,19 +312,31 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
                 cors_origin: corsOrigin
             };
             
+            // Build new_asset_settings object
+            const newAssetSettings: any = {};
+            
             // Add playback policy (defaults to signed for security)
             if (playbackPolicy && playbackPolicy !== 'public') {
-                createArgs.new_asset_settings = {
-                    playback_policies: [playbackPolicy]
-                };
-                console.log(`[createMuxUpload] 📋 Upload configuration:
-   - cors_origin: ${corsOrigin}
-   - playback_policies: [${playbackPolicy}]`);
-            } else {
-                console.log(`[createMuxUpload] 📋 Upload configuration:
-   - cors_origin: ${corsOrigin}
-   - playback_policies: [public] (default)`);
+                newAssetSettings.playback_policies = [playbackPolicy];
             }
+            
+            // Add image as input if provided (for audio-only streams with poster image)
+            if (imageUrl) {
+                newAssetSettings.inputs = [
+                    { url: imageUrl, type: 'video' }
+                ];
+                console.log(`[createMuxUpload] 🖼️  Adding poster image: ${imageUrl}`);
+            }
+            
+            // Only set new_asset_settings if we have any settings
+            if (Object.keys(newAssetSettings).length > 0) {
+                createArgs.new_asset_settings = newAssetSettings;
+            }
+            
+            console.log(`[createMuxUpload] 📋 Upload configuration:
+   - cors_origin: ${corsOrigin}
+   - playback_policies: [${playbackPolicy}]${imageUrl ? `\n   - poster_image: ${imageUrl}` : ''}`);
+
             
             console.log('[createMuxUpload] 🚀 Creating upload via MCP...');
             const createRes = await createTool.execute({ context: createArgs });
@@ -404,11 +422,25 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
         cors_origin: corsOrigin
     };
     
-    // Add playback policy if specified
+    // Build new_asset_settings object
+    const newAssetSettings: any = {};
+    
+    // Add playback policy (defaults to signed for security)
     if (playbackPolicy && playbackPolicy !== 'public') {
-        uploadPayload.new_asset_settings = {
-            playback_policies: [playbackPolicy]
-        };
+        newAssetSettings.playback_policies = [playbackPolicy];
+    }
+    
+    // Add image as input if provided (for audio-only streams with poster image)
+    if (imageUrl) {
+        newAssetSettings.inputs = [
+            { url: imageUrl, type: 'video' }
+        ];
+        console.log(`[createMuxUpload] 🖼️  Adding poster image (REST): ${imageUrl}`);
+    }
+    
+    // Only set new_asset_settings if we have any settings
+    if (Object.keys(newAssetSettings).length > 0) {
+        uploadPayload.new_asset_settings = newAssetSettings;
     }
     
     console.debug('[createMuxUpload] Creating upload via REST API');
@@ -773,12 +805,16 @@ Total Error Events: ${totalErrors}
             await fs.writeFile(resolve(audioPath), audioBuffer);
             console.debug(`[tts-analytics-report] Audio saved: ${audioPath} (${audioBuffer.length} bytes)`);
             
-            // Upload to Mux
+            // Upload to Mux with poster image
             let playerUrl: string | undefined;
             let assetId: string | undefined;
             
+            // Use baby.jpeg as poster image for audio-only stream
+            const posterImageUrl = `${STREAMING_PORTFOLIO_BASE_URL}/files/images/baby.jpeg`;
+            console.debug(`[tts-analytics-report] Using poster image: ${posterImageUrl}`);
+            
             try {
-                const uploadData = await createMuxUpload();
+                const uploadData = await createMuxUpload(posterImageUrl);
                 const uploadUrl = uploadData.uploadUrl;
                 const uploadId = uploadData.uploadId;
                 assetId = uploadData.assetId;

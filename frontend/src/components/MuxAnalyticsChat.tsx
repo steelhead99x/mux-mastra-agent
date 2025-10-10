@@ -4,6 +4,7 @@ import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
 import MuxSignedPlayer from './MuxSignedPlayer'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
+import { formatTextWithCode, renderFormattedSegments } from '../utils/codeFormatter'
 
 /**
  * Mux Analytics Chat Component for Paramount Plus Streaming Analytics
@@ -31,8 +32,9 @@ interface MuxAnalyticsAgent {
 /**
  * Memoized message component to prevent unnecessary re-renders
  * @param message - The message to display
+ * @param isStreaming - Whether the message is currently being streamed
  */
-const MessageComponent = memo(({ message }: { message: Message }) => {
+const MessageComponent = memo(({ message, isStreaming = false }: { message: Message; isStreaming?: boolean }) => {
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
     // More comprehensive pattern that handles various URL formats and spacing issues
@@ -82,12 +84,10 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
     return matches ? matches[0] : null;
   }
 
-  // Function to format text content
+  // Function to format text content with code detection
   const formatTextContent = (text: string) => {
-    return text
-      .replace(/\n\s*\n/g, '\n\n') // Normalize multiple newlines
-      .replace(/[ \t]+/g, ' ')
-      .trim()
+    const segments = formatTextWithCode(text);
+    return renderFormattedSegments(segments);
   }
 
   // Function to render content with URL detection
@@ -222,7 +222,40 @@ const MessageComponent = memo(({ message }: { message: Message }) => {
 
   return (
     <div className="whitespace-pre-wrap text-sm">
-      {renderContent(message.content)}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1">
+          {renderContent(message.content)}
+        </div>
+        {/* Only show copy button when streaming is complete */}
+        {!isStreaming && (
+          <button
+            onClick={(e) => {
+              navigator.clipboard.writeText(message.content).then(() => {
+                // Show temporary success feedback
+                const button = e.target as HTMLButtonElement;
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                button.style.color = 'var(--success)';
+                setTimeout(() => {
+                  button.textContent = originalText;
+                  button.style.color = '';
+                }, 2000);
+              }).catch(err => {
+                console.error('Failed to copy message:', err);
+              });
+            }}
+            className="text-xs px-2 py-1 rounded border transition-colors hover:bg-opacity-80 opacity-0 group-hover:opacity-100"
+            style={{ 
+              backgroundColor: 'var(--accent)', 
+              borderColor: 'var(--accent)',
+              color: 'var(--accent-fg)'
+            }}
+            title="Copy message text"
+          >
+            Copy Text
+          </button>
+        )}
+      </div>
       <div className="text-xs mt-1 opacity-70">
         {new Date(message.timestamp).toLocaleTimeString()}
       </div>
@@ -538,7 +571,7 @@ export default function MuxAnalyticsChat() {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] p-3 rounded-lg ${
+                className={`max-w-[80%] p-3 rounded-lg group ${
                   message.role === 'user'
                     ? 'bg-blue-500 text-white'
                     : 'bg-white border'
@@ -549,7 +582,10 @@ export default function MuxAnalyticsChat() {
                   color: message.role === 'user' ? 'white' : 'var(--fg)'
                 }}
               >
-                <MessageComponent message={message} />
+                <MessageComponent 
+                  message={message} 
+                  isStreaming={isStreaming && message.role === 'assistant' && message === messages[messages.length - 1]}
+                />
               </div>
             </div>
           ))
