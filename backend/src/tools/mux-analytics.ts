@@ -28,11 +28,6 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-// Mux API valid timeframe constraints
-// Based on actual Mux API response: valid timeframe [Jul 2 2025, Oct 10 2025]
-const MUX_API_VALID_START = 1751414400; // Jul 2 2025 00:00:00 UTC
-const MUX_API_VALID_END = 1760068051;   // Oct 10 2025 03:47:31 UTC (from API response)
-
 /**
  * Get current time as Unix timestamp
  */
@@ -53,6 +48,7 @@ export function parseRelativeTimeframe(timeframe: string): [number, number] {
     if (daysMatch) {
         const days = parseInt(daysMatch[1], 10);
         const startTime = now - (days * 24 * 60 * 60);
+        console.log(`[parseRelativeTimeframe] Parsed "last ${days} days": ${new Date(startTime * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
         return [startTime, now];
     }
     
@@ -61,6 +57,7 @@ export function parseRelativeTimeframe(timeframe: string): [number, number] {
     if (hoursMatch) {
         const hours = parseInt(hoursMatch[1], 10);
         const startTime = now - (hours * 60 * 60);
+        console.log(`[parseRelativeTimeframe] Parsed "last ${hours} hours": ${new Date(startTime * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
         return [startTime, now];
     }
     
@@ -69,6 +66,7 @@ export function parseRelativeTimeframe(timeframe: string): [number, number] {
     if (minutesMatch) {
         const minutes = parseInt(minutesMatch[1], 10);
         const startTime = now - (minutes * 60);
+        console.log(`[parseRelativeTimeframe] Parsed "last ${minutes} minutes": ${new Date(startTime * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
         return [startTime, now];
     }
     
@@ -77,6 +75,7 @@ export function parseRelativeTimeframe(timeframe: string): [number, number] {
     if (weeksMatch) {
         const weeks = parseInt(weeksMatch[1], 10);
         const startTime = now - (weeks * 7 * 24 * 60 * 60);
+        console.log(`[parseRelativeTimeframe] Parsed "last ${weeks} weeks": ${new Date(startTime * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
         return [startTime, now];
     }
     
@@ -86,18 +85,20 @@ export function parseRelativeTimeframe(timeframe: string): [number, number] {
         const months = parseInt(monthsMatch[1], 10);
         // Approximate months as 30 days
         const startTime = now - (months * 30 * 24 * 60 * 60);
+        console.log(`[parseRelativeTimeframe] Parsed "last ${months} months": ${new Date(startTime * 1000).toISOString()} to ${new Date(now * 1000).toISOString()}`);
         return [startTime, now];
     }
     
     // Default to last 24 hours if no pattern matches
     console.warn(`Could not parse relative timeframe "${timeframe}", defaulting to last 24 hours`);
-    return [now - (24 * 60 * 60), now];
+    const startTime = now - (24 * 60 * 60);
+    return [startTime, now];
 }
 
 /**
- * Generate valid timestamps within Mux API constraints
- * If requested timeframe is outside valid range, adjust to valid range
- * Now uses current time as the reference point for relative timeframes
+ * Generate valid timestamps for Mux API queries
+ * Uses current time as the reference point for relative timeframes
+ * Let the Mux API handle validation - only apply basic sanity checks
  */
 function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [number, number] {
     const now = getCurrentTime();
@@ -109,28 +110,31 @@ function getValidTimeframe(requestedStart?: number, requestedEnd?: number): [num
     let start = requestedStart || defaultStart;
     let end = requestedEnd || defaultEnd;
     
-    // Ensure timestamps are within valid range
-    // If either timestamp is outside the valid range, use defaults instead
-    if (start < MUX_API_VALID_START || start > MUX_API_VALID_END || 
-        end < MUX_API_VALID_START || end > MUX_API_VALID_END) {
-        start = defaultStart;
-        end = defaultEnd;
-    } else {
-        start = Math.max(MUX_API_VALID_START, Math.min(MUX_API_VALID_END, start));
-        end = Math.max(MUX_API_VALID_START, Math.min(MUX_API_VALID_END, end));
-    }
-    
-    // Ensure start is before end and timeframe is positive
+    // Only apply basic sanity checks - let Mux API handle specific date range validation
+    // Ensure start is before end
     if (start >= end) {
+        console.warn(`[getValidTimeframe] Start time (${start}) is after end time (${end}), adjusting to 24 hours before end`);
         start = end - (24 * 60 * 60); // 24 hours before end
-        start = Math.max(MUX_API_VALID_START, start);
     }
     
     // Ensure minimum timeframe of 1 hour
     const minTimeframe = 60 * 60; // 1 hour in seconds
     if (end - start < minTimeframe) {
-        start = Math.max(MUX_API_VALID_START, end - minTimeframe);
+        console.warn(`[getValidTimeframe] Timeframe too short (${end - start}s), adjusting to 1 hour minimum`);
+        start = end - minTimeframe;
     }
+    
+    // Ensure timestamps are not in the future
+    if (end > now) {
+        console.warn(`[getValidTimeframe] End time is in the future, adjusting to current time`);
+        end = now;
+    }
+    if (start > now) {
+        console.warn(`[getValidTimeframe] Start time is in the future, adjusting to 24 hours ago`);
+        start = now - (24 * 60 * 60);
+    }
+    
+    console.log(`[getValidTimeframe] Final timeframe: ${new Date(start * 1000).toISOString()} to ${new Date(end * 1000).toISOString()}`);
     
     return [start, end];
 }
@@ -689,29 +693,96 @@ export const muxErrorsTool = createTool({
                 }
             }
             
-            // Try to get platform breakdown if we have error data
-            if (errorsData && tools['list_breakdown_values']) {
+            // Try to get platform breakdown with actual error counts
+            // We need to query errors grouped by operating_system dimension
+            if (errorsData && tools['invoke_api_endpoint']) {
                 try {
-                    const breakdownData = await tools['list_breakdown_values'].execute({ 
+                    // Get error breakdown by operating system
+                    const osErrorsData = await tools['invoke_api_endpoint'].execute({
                         context: {
-                            METRIC_ID: 'video_startup_failure_percentage', // Required parameter
-                            timeframe: [start, end],
-                            group_by: 'operating_system',
-                            order_by: 'negative_impact',
-                            order_direction: 'desc',
-                            limit: 20
+                            endpoint_name: 'list_data_errors',
+                            args: {
+                                timeframe: [start, end],
+                                group_by: 'operating_system',
+                                ...(filters && filters.length > 0 && { filters })
+                            }
                         }
                     });
-                    osBreakdown = breakdownData.data || [];
-                    console.log('[mux-errors] Got platform breakdown:', osBreakdown);
+                    
+                    console.log('[mux-errors] Got OS-grouped error data:', JSON.stringify(osErrorsData, null, 2));
+                    
+                    // Process the OS-grouped error data
+                    if (osErrorsData && osErrorsData.data && Array.isArray(osErrorsData.data)) {
+                        // Group errors by operating system
+                        const osCounts = new Map<string, number>();
+                        
+                        osErrorsData.data.forEach((errorGroup: any) => {
+                            const os = errorGroup.operating_system || errorGroup.field || 'Unknown';
+                            const count = errorGroup.count || 0;
+                            osCounts.set(os, (osCounts.get(os) || 0) + count);
+                        });
+                        
+                        // Convert to array and calculate percentages
+                        const totalErrorsForBreakdown = Array.from(osCounts.values()).reduce((sum, count) => sum + count, 0);
+                        
+                        osBreakdown = Array.from(osCounts.entries())
+                            .map(([os, count]) => ({
+                                operating_system: os,
+                                error_count: count,
+                                error_percentage: totalErrorsForBreakdown > 0 ? (count / totalErrorsForBreakdown) * 100 : 0
+                            }))
+                            .sort((a, b) => b.error_count - a.error_count);
+                        
+                        console.log('[mux-errors] Calculated platform breakdown:', osBreakdown);
+                    }
                 } catch (breakdownError) {
-                    console.warn('[mux-errors] Could not fetch platform breakdown:', breakdownError);
+                    console.warn('[mux-errors] Could not fetch OS-grouped error data:', breakdownError);
+                    
+                    // Fallback: Try list_breakdown_values as backup
+                    if (tools['list_breakdown_values']) {
+                        try {
+                            const breakdownData = await tools['list_breakdown_values'].execute({ 
+                                context: {
+                                    METRIC_ID: 'video_startup_failure_percentage',
+                                    timeframe: [start, end],
+                                    group_by: 'operating_system',
+                                    order_by: 'negative_impact',
+                                    order_direction: 'desc',
+                                    limit: 20
+                                }
+                            });
+                            
+                            // Use whatever data we can get, even if value is 0
+                            osBreakdown = (breakdownData.data || []).map((platform: any) => ({
+                                operating_system: platform.field || 'Unknown',
+                                error_count: platform.value || 0,
+                                views: platform.views || 0,
+                                error_percentage: 0,
+                                negative_impact: platform.negative_impact || 0
+                            }));
+                            
+                            console.log('[mux-errors] Fallback platform breakdown (may have 0 counts):', osBreakdown);
+                        } catch (fallbackError) {
+                            console.warn('[mux-errors] Fallback breakdown also failed:', fallbackError);
+                        }
+                    }
                 }
             }
             
             // If we still don't have data, return failure instead of mock data
             if (!errorsData) {
                 throw new Error('Unable to retrieve error data from Mux API. Error endpoints may not be available or your account may not have error data for the requested timeframe.');
+            }
+            
+            // Calculate total errors - use total_row_count if available, otherwise sum up individual error counts
+            let totalErrors = errorsData.total_row_count || 0;
+            
+            // If total_row_count is null/0 but we have error data, calculate from the counts
+            if (!totalErrors && errorsData.data && Array.isArray(errorsData.data) && errorsData.data.length > 0) {
+                totalErrors = errorsData.data.reduce((sum: number, error: any) => {
+                    return sum + (error.count || 0);
+                }, 0);
+                console.log(`[mux-errors] Calculated totalErrors from individual counts: ${totalErrors}`);
             }
             
             return {
@@ -721,7 +792,7 @@ export const muxErrorsTool = createTool({
                     end: new Date(end * 1000).toISOString(),
                 },
                 errors: errorsData.data || [],
-                totalErrors: errorsData.total_row_count || 0,
+                totalErrors,
                 platformBreakdown: osBreakdown,
             };
         } catch (error) {

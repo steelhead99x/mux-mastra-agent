@@ -29,7 +29,7 @@ export default function MuxSignedPlayer({
   type?: 'video'
   className?: string
 }) {
-  const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || '00ixOU3x6YI02DXIzeQ00wEzTwAHyUojsiewp7fC4FNeNw'
+  const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || ''
   const { updateAnalytics } = useMuxAnalytics()
 
   // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?playbackId=..., etc.)
@@ -215,7 +215,13 @@ export default function MuxSignedPlayer({
   if (!assetId && !playbackId) {
     return (
       <div className={className}>
-        <div className="text-sm" style={{ color: 'var(--fg-subtle)' }}>No Mux assetId or playbackId configured.</div>
+        <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
+          <div className="text-center">
+            <div className="font-medium mb-2">🎧 Audio Player</div>
+            <div className="text-xs opacity-75">No audio content available</div>
+            <div className="text-xs mt-2 opacity-50">Generate an analytics report to create audio content</div>
+          </div>
+        </div>
       </div>
     )
   }

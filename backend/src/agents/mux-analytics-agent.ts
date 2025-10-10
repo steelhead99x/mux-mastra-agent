@@ -632,10 +632,10 @@ Total Errors Detected: ${totalErrors || 0}
                     summaryText += `- Test new content on multiple platforms before wide release\n`;
                 }
                 
-            } else if (actualFocusArea === 'both' && analyticsResult?.success && errorsResult?.success) {
-                // Comprehensive report with both analytics and errors
-                const { metrics, analysis } = analyticsResult;
-                const { totalErrors, platformBreakdown, errors } = errorsResult;
+            } else if (actualFocusArea === 'both' && (analyticsResult?.success || errorsResult?.success)) {
+                // Comprehensive report with both analytics and errors (at least one must succeed)
+                const { metrics, analysis } = analyticsResult || {};
+                const { totalErrors, platformBreakdown, errors } = errorsResult || {};
                 
                 // Check if there are actual errors - if so, use a modified summary approach
                 if (totalErrors > 0) {
@@ -645,7 +645,7 @@ Total Errors Detected: ${totalErrors || 0}
 Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
 
 Overall Performance Summary:
-Your streaming infrastructure had ${metrics.total_views || 0} views during this period, with ${totalErrors} error events detected. Let me break down the details.
+Your streaming infrastructure had ${metrics?.total_views || 0} views during this period, with ${totalErrors} error events detected. Let me break down the details.
 
 Error Analysis:
 Total Error Events: ${totalErrors}
@@ -679,21 +679,23 @@ Total Error Events: ${totalErrors}
                         summaryText += `\n`;
                     }
                     
-                    // Add key metrics
-                    summaryText += `Key Performance Metrics:\n`;
-                    if (metrics.total_views !== undefined) {
-                        summaryText += `Total Views: ${metrics.total_views.toLocaleString()}\n`;
+                    // Add key metrics (if available)
+                    if (metrics) {
+                        summaryText += `Key Performance Metrics:\n`;
+                        if (metrics.total_views !== undefined) {
+                            summaryText += `Total Views: ${metrics.total_views.toLocaleString()}\n`;
+                        }
+                        if (metrics.total_error_percentage !== undefined) {
+                            summaryText += `Error Rate: ${metrics.total_error_percentage.toFixed(2)}%\n`;
+                        }
+                        if (metrics.total_rebuffer_percentage !== undefined) {
+                            summaryText += `Rebuffer Rate: ${metrics.total_rebuffer_percentage.toFixed(2)}%\n`;
+                        }
+                        if (metrics.average_startup_time_ms !== undefined) {
+                            summaryText += `Avg Startup Time: ${(metrics.average_startup_time_ms / 1000).toFixed(2)} seconds\n`;
+                        }
+                        summaryText += `\n`;
                     }
-                    if (metrics.total_error_percentage !== undefined) {
-                        summaryText += `Error Rate: ${metrics.total_error_percentage.toFixed(2)}%\n`;
-                    }
-                    if (metrics.total_rebuffer_percentage !== undefined) {
-                        summaryText += `Rebuffer Rate: ${metrics.total_rebuffer_percentage.toFixed(2)}%\n`;
-                    }
-                    if (metrics.average_startup_time_ms !== undefined) {
-                        summaryText += `Avg Startup Time: ${(metrics.average_startup_time_ms / 1000).toFixed(2)} seconds\n`;
-                    }
-                    summaryText += `\n`;
                     
                     // Add recommendations if issues exist
                     if (analysis.issues && analysis.issues.length > 0) {
@@ -902,12 +904,14 @@ function buildSystemPrompt() {
         '- Review detailed video view data and user engagement',
         '- Generate audio reports summarizing findings (under 1000 words)',
         '',
-        'AUDIO SUMMARY REQUIREMENT:',
+        'AUDIO SUMMARY REQUIREMENT (CRITICAL - FOLLOW EXACTLY):',
         '- ALWAYS generate an AI audio summary when analyzing data over any time period',
         '- For ANY query involving time ranges (last 24 hours, last 7 days, specific dates, etc.), automatically use the ttsAnalyticsReportTool',
         '- When user asks about ERRORS specifically (e.g., "summarize my errors", "error analysis"), use ttsAnalyticsReportTool with focusArea="errors"',
+        '- When user asks for BOTH error rates AND performance metrics (e.g., "error rates and startup performance", "errors and rebuffering", "error analysis and video performance", "Show me error rates and video startup performance"), use ttsAnalyticsReportTool with focusArea="both"',
         '- When user asks for COMPREHENSIVE or COMPLETE reports, use ttsAnalyticsReportTool with focusArea="both"',
         '- For GENERAL analytics queries, use ttsAnalyticsReportTool with focusArea="general" (default)',
+        '- NEVER use individual tools (muxErrorsTool, muxAnalyticsTool) when user asks for comprehensive reports - ALWAYS use ttsAnalyticsReportTool',
         '',
         'AUDIO URL DISPLAY RULES (CRITICAL):',
         '- The ttsAnalyticsReportTool returns a "message" field - USE THIS DIRECTLY in your response',
@@ -925,11 +929,17 @@ function buildSystemPrompt() {
         '- Examples of REAL asset IDs: "XPwNih9O9wiNcUtNlHdN8Gdx5rG2pMoquWPBm1uEizo", "wpankyH1Ij2j9UrauveLE013fmlX8ktf00B01KZqxOMacE"',
         '- Examples of FAKE asset IDs (NEVER use): "error-report-2025-10-10", "analytics-report", "audio-123"',
         '- If assetId is undefined or missing from tool response, say "Asset ID not yet available" - do NOT make one up',
-        '- Display format: "🎧 Audio Report URL: https://www.streamingportfolio.com/player?assetId=..."',
-        '- The audio URL must be displayed at the top of your response in a clear, visible format',
-        '- Include both text analysis AND the audio playback URL in every response',
-        '- The audio summary should be concise (under 1000 words) and highlight key findings',
-        '- Always mention the time period being analyzed in the audio summary',
+        '',
+        'RESPONSE FORMAT (CRITICAL - FOLLOW EXACTLY):',
+        '- Display format: "🎧 Audio Report URL: https://www.streamingportfolio.com/player?assetId=..." at the TOP',
+        '- The audio URL must be displayed first in a clear, visible format',
+        '- AFTER showing the audio URL, include the "summaryText" field from the tool response',
+        '- The summaryText contains EXACTLY what is spoken in the audio - show this to the user so they know what the audio says',
+        '- DO NOT create your own separate analysis - the analysis is already in the summaryText/audio',
+        '- Your text response should MATCH what is in the audio file',
+        '- Format: Show audio URL, then show the summaryText verbatim, then offer to answer questions',
+        '- The audio summary is concise (under 1000 words) and highlights key findings',
+        '- Always mention the time period being analyzed',
         '- Audio is generated using Deepgram TTS with natural pauses and conversational tone',
         '',
         'ANALYSIS APPROACH:',
