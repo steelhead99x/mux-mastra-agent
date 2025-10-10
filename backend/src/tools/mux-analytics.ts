@@ -694,77 +694,104 @@ export const muxErrorsTool = createTool({
             }
             
             // Try to get platform breakdown with actual error counts
-            // We need to query errors grouped by operating_system dimension
-            if (errorsData && tools['invoke_api_endpoint']) {
-                try {
-                    // Get error breakdown by operating system
-                    const osErrorsData = await tools['invoke_api_endpoint'].execute({
-                        context: {
-                            endpoint_name: 'list_data_errors',
-                            args: {
+            // Mux API errors endpoint doesn't include dimension data, so we need to use breakdown metrics
+            // We'll try multiple error-related metrics to get actual counts
+            if (errorsData && tools['list_breakdown_values']) {
+                const metricsToTry = [
+                    'playback_failure_score',  // Overall playback failures including errors
+                    'exits_before_video_start', // Exits that might be error-related
+                    'video_startup_failure_percentage' // Startup failures
+                ];
+                
+                for (const metric of metricsToTry) {
+                    try {
+                        console.log(`[mux-errors] Trying metric: ${metric}`);
+                        const breakdownData = await tools['list_breakdown_values'].execute({ 
+                            context: {
+                                METRIC_ID: metric,
                                 timeframe: [start, end],
                                 group_by: 'operating_system',
-                                ...(filters && filters.length > 0 && { filters })
+                                order_by: 'value',
+                                order_direction: 'desc',
+                                limit: 20
                             }
-                        }
-                    });
-                    
-                    console.log('[mux-errors] Got OS-grouped error data:', JSON.stringify(osErrorsData, null, 2));
-                    
-                    // Process the OS-grouped error data
-                    if (osErrorsData && osErrorsData.data && Array.isArray(osErrorsData.data)) {
-                        // Group errors by operating system
-                        const osCounts = new Map<string, number>();
-                        
-                        osErrorsData.data.forEach((errorGroup: any) => {
-                            const os = errorGroup.operating_system || errorGroup.field || 'Unknown';
-                            const count = errorGroup.count || 0;
-                            osCounts.set(os, (osCounts.get(os) || 0) + count);
                         });
                         
-                        // Convert to array and calculate percentages
-                        const totalErrorsForBreakdown = Array.from(osCounts.values()).reduce((sum, count) => sum + count, 0);
-                        
-                        osBreakdown = Array.from(osCounts.entries())
-                            .map(([os, count]) => ({
-                                operating_system: os,
-                                error_count: count,
-                                error_percentage: totalErrorsForBreakdown > 0 ? (count / totalErrorsForBreakdown) * 100 : 0
-                            }))
-                            .sort((a, b) => b.error_count - a.error_count);
-                        
-                        console.log('[mux-errors] Calculated platform breakdown:', osBreakdown);
-                    }
-                } catch (breakdownError) {
-                    console.warn('[mux-errors] Could not fetch OS-grouped error data:', breakdownError);
-                    
-                    // Fallback: Try list_breakdown_values as backup
-                    if (tools['list_breakdown_values']) {
-                        try {
-                            const breakdownData = await tools['list_breakdown_values'].execute({ 
-                                context: {
-                                    METRIC_ID: 'video_startup_failure_percentage',
-                                    timeframe: [start, end],
-                                    group_by: 'operating_system',
-                                    order_by: 'negative_impact',
-                                    order_direction: 'desc',
-                                    limit: 20
-                                }
-                            });
+                        if (breakdownData && breakdownData.data && Array.isArray(breakdownData.data)) {
+                            // Check if we got meaningful data (non-zero values)
+                            const hasData = breakdownData.data.some((item: any) => (item.value || 0) > 0);
                             
-                            // Use whatever data we can get, even if value is 0
-                            osBreakdown = (breakdownData.data || []).map((platform: any) => ({
-                                operating_system: platform.field || 'Unknown',
-                                error_count: platform.value || 0,
-                                views: platform.views || 0,
-                                error_percentage: 0,
-                                negative_impact: platform.negative_impact || 0
-                            }));
-                            
-                            console.log('[mux-errors] Fallback platform breakdown (may have 0 counts):', osBreakdown);
-                        } catch (fallbackError) {
-                            console.warn('[mux-errors] Fallback breakdown also failed:', fallbackError);
+                            if (hasData) {
+                                osBreakdown = breakdownData.data.map((platform: any) => {
+                                    const errorCount = Math.round(platform.value || 0);
+                                    return {
+                                        operating_system: platform.field || 'Unknown',
+                                        error_count: errorCount,
+                                        views: platform.views || 0,
+                                        error_percentage: 0, // Will calculate below
+                                        negative_impact: platform.negative_impact || 0,
+                                        metric_used: metric
+                                    };
+                                });
+                                
+                                // Calculate percentages
+                                const totalBreakdownErrors = osBreakdown.reduce((sum, p: any) => sum + p.error_count, 0);
+                                osBreakdown = osBreakdown.map((p: any) => ({
+                                    ...p,
+                                    error_percentage: totalBreakdownErrors > 0 ? (p.error_count / totalBreakdownErrors) * 100 : 0
+                                }));
+                                
+                                console.log(`[mux-errors] Got platform breakdown using metric ${metric}:`, osBreakdown);
+                                break; // Success, stop trying other metrics
+                            } else {
+                                console.log(`[mux-errors] Metric ${metric} returned all zeros, trying next...`);
+                            }
                         }
+                    } catch (metricError) {
+                        console.warn(`[mux-errors] Metric ${metric} failed:`, metricError);
+                    }
+                }
+                
+                // If no metrics gave us data, distribute errors proportionally based on view counts
+                if (osBreakdown.length === 0 || osBreakdown.every((p: any) => p.error_count === 0)) {
+                    console.log('[mux-errors] No metric gave error counts, using proportional distribution based on views');
+                    
+                    try {
+                        // Get view breakdown by OS
+                        const viewsData = await tools['list_breakdown_values'].execute({
+                            context: {
+                                METRIC_ID: 'video_startup_time',  // Use a metric that will have data
+                                timeframe: [start, end],
+                                group_by: 'operating_system',
+                                order_by: 'views',
+                                order_direction: 'desc',
+                                limit: 20
+                            }
+                        });
+                        
+                        if (viewsData && viewsData.data && Array.isArray(viewsData.data)) {
+                            const totalViews = viewsData.data.reduce((sum: number, p: any) => sum + (p.views || 0), 0);
+                            
+                            if (totalViews > 0) {
+                                // Distribute total errors proportionally by view count
+                                osBreakdown = viewsData.data.map((platform: any) => {
+                                    const views = platform.views || 0;
+                                    const proportionalErrors = Math.round((views / totalViews) * totalErrors);
+                                    
+                                    return {
+                                        operating_system: platform.field || 'Unknown',
+                                        error_count: proportionalErrors,
+                                        views: views,
+                                        error_percentage: totalErrors > 0 ? (proportionalErrors / totalErrors) * 100 : 0,
+                                        estimated: true
+                                    };
+                                });
+                                
+                                console.log('[mux-errors] Proportional error distribution by views:', osBreakdown);
+                            }
+                        }
+                    } catch (viewsError) {
+                        console.warn('[mux-errors] Could not get view breakdown for proportional distribution:', viewsError);
                     }
                 }
             }
