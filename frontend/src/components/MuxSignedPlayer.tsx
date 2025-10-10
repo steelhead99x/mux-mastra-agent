@@ -31,13 +31,14 @@ export default function MuxSignedPlayer({
 }) {
   const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || ''
   const { updateAnalytics, currentVideo } = useMuxAnalytics()
+  const tokenCacheRef = useRef<Map<string, { playbackId: string; token: string; thumbnailToken?: string; width?: number; height?: number }>>(new Map())
 
-  // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?playbackId=..., etc.)
+  // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?asset_id=..., ?playbackId=..., ?playback_id=..., etc.)
   const assetIdFromQuery = useMemo(() => {
     if (typeof window === 'undefined') return undefined
     try {
       const sp = new URLSearchParams(window.location.search)
-      const raw = sp.get('assetId') || sp.get('assetID') || sp.get('assetid')
+      const raw = sp.get('assetId') || sp.get('assetID') || sp.get('assetid') || sp.get('asset_id')
       const val = raw?.trim()
       return val ? val : undefined
     } catch {
@@ -49,7 +50,7 @@ export default function MuxSignedPlayer({
     if (typeof window === 'undefined') return undefined
     try {
       const sp = new URLSearchParams(window.location.search)
-      const raw = sp.get('playbackId') || sp.get('playbackID') || sp.get('playbackid')
+      const raw = sp.get('playbackId') || sp.get('playbackID') || sp.get('playbackid') || sp.get('playback_id')
       const val = raw?.trim()
       return val ? val : undefined
     } catch {
@@ -57,9 +58,30 @@ export default function MuxSignedPlayer({
     }
   }, [])
 
-  // Priority: context > props > query params > env > default
-  const assetId = currentVideo.assetId || assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
-  const playbackId = currentVideo.playbackId || playbackIdProp || playbackID || playbackid || playbackIdFromQuery
+  // Priority: context > props > query params
+  const playbackId = useMemo(() => 
+    currentVideo.playbackId || playbackIdProp || playbackID || playbackid || playbackIdFromQuery,
+    [currentVideo.playbackId, playbackIdProp, playbackID, playbackid, playbackIdFromQuery]
+  )
+
+  // For assetId, avoid falling back to env defaults when a playbackId is already provided,
+  // to prevent sending a mismatched assetId to the key server.
+  const providedAssetId = useMemo(() => {
+    const raw = currentVideo.assetId || assetIdProp || assetID || assetid || assetIdFromQuery
+    if (raw && raw.length < 20) {
+      console.warn('[MuxSignedPlayer] Ignoring invalid/short assetId:', raw)
+      return undefined
+    }
+    return raw
+  }, [currentVideo.assetId, assetIdProp, assetID, assetid, assetIdFromQuery])
+
+  const assetId = useMemo(() => {
+    if (providedAssetId) return providedAssetId
+    // Only use env/default fallback when we do NOT already have a playbackId
+    if (!playbackId) return import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
+    return undefined
+  }, [providedAssetId, playbackId])
+  
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://www.streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -68,11 +90,13 @@ export default function MuxSignedPlayer({
     | { status: 'error'; message: string }
   >({ status: 'idle' })
 
-  const body = useMemo(() => ({ 
-    ...(assetId && { assetId }), 
-    ...(playbackId && { playbackId }), 
-    type 
-  }), [assetId, playbackId, type, currentVideo])
+  const body = useMemo(() => {
+    // Prefer playbackId over assetId; only include one to avoid ambiguity
+    if (playbackId) return { playbackId, type }
+    if (assetId) return { assetId, type }
+    return { type }
+  }, [assetId, playbackId, type])
+  const requestKey = useMemo(() => JSON.stringify({ keyServerUrl, assetId: assetId || null, playbackId: playbackId || null, type }), [keyServerUrl, assetId, playbackId, type])
   const playerRef = useRef<any>(null)
 
   // Setup global error handler for WritableStream errors
@@ -125,6 +149,27 @@ export default function MuxSignedPlayer({
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
+
+    // Opportunistic preconnects for faster TLS/handshakes
+    try {
+      const ensurePreconnect = (href: string) => {
+        if (!href) return
+        const url = new URL(href, window.location.href)
+        const origin = url.origin
+        const has = Array.from(document.querySelectorAll('link[rel="preconnect"]')).some((el: any) => el.href.startsWith(origin))
+        if (!has) {
+          const link = document.createElement('link')
+          link.rel = 'preconnect'
+          link.href = origin
+          link.crossOrigin = 'anonymous'
+          document.head.appendChild(link)
+        }
+      }
+      ensurePreconnect(keyServerUrl)
+      ensurePreconnect('https://stream.mux.com')
+      ensurePreconnect('https://image.mux.com')
+    } catch {}
     async function run() {
       try {
         console.log('[MuxSignedPlayer] Starting token fetch for assetId:', assetId)
@@ -132,11 +177,18 @@ export default function MuxSignedPlayer({
         console.log('[MuxSignedPlayer] Request body:', JSON.stringify(body, null, 2))
         
         setState({ status: 'loading' })
+        const cached = tokenCacheRef.current.get(requestKey)
+        if (cached) {
+          console.log('[MuxSignedPlayer] Using cached token response')
+          if (!cancelled) setState({ status: 'ready', ...cached })
+          return
+        }
         
         const res = await fetch(keyServerUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: controller.signal,
         })
         
         console.log('[MuxSignedPlayer] Response status:', res.status)
@@ -181,7 +233,9 @@ export default function MuxSignedPlayer({
         if (cancelled) return
         
         console.log('[MuxSignedPlayer] Successfully obtained tokens, setting ready state')
-        setState({ status: 'ready', playbackId, token, thumbnailToken, width, height })
+        const ready = { playbackId, token, thumbnailToken, width, height }
+        tokenCacheRef.current.set(requestKey, ready)
+        setState({ status: 'ready', ...ready })
         
         // Initialize analytics data
         const analyticsId = assetId || playbackId || 'unknown'
@@ -204,14 +258,17 @@ export default function MuxSignedPlayer({
         console.error('[MuxSignedPlayer] Error during token fetch:', e)
         console.error('[MuxSignedPlayer] Error stack:', e?.stack)
         if (cancelled) return
-        setState({ status: 'error', message: e?.message || 'Failed to fetch playback token' })
+        if (e?.name !== 'AbortError') {
+          setState({ status: 'error', message: e?.message || 'Failed to fetch playback token' })
+        }
       }
     }
     run()
     return () => {
       cancelled = true
+      try { controller.abort() } catch {}
     }
-  }, [keyServerUrl, body])
+  }, [keyServerUrl, assetId, playbackId, type, body, updateAnalytics, requestKey])
 
   if (!assetId && !playbackId) {
     return (
@@ -282,34 +339,34 @@ export default function MuxSignedPlayer({
           preload="metadata"
           onLoadStart={() => {
             const loadStartTime = Date.now()
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, { loadTime: loadStartTime })
           }}
           onLoadedData={() => {
             const firstFrameTime = Date.now()
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, { firstFrameTime })
           }}
           onPlay={() => {
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               playEvents: 1
             })
           }}
           onPause={() => {
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               pauseEvents: 1
             })
           }}
           onSeeking={() => {
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               seekingEvents: 1
             })
           }}
           onWaiting={() => {
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               bufferingEvents: 1
             })
@@ -320,7 +377,7 @@ export default function MuxSignedPlayer({
             const volume = event.target?.volume || 0
             const playbackRate = event.target?.playbackRate || 1
             
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               currentTime,
               videoDuration: duration,
@@ -339,7 +396,7 @@ export default function MuxSignedPlayer({
               }
             }
             
-            const analyticsId = assetId || playbackId || 'unknown'
+            const analyticsId = providedAssetId || playbackId || 'unknown'
             updateAnalytics(analyticsId, {
               errorEvents: 1
             })

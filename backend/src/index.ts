@@ -206,7 +206,103 @@ if (!isPlaygroundMode) {
     }
   });
   
-  // Streaming endpoint for MastraClient compatibility
+  // Standard streaming endpoint (primary endpoint for MastraClient)
+  app.post('/api/agents/:agentId/stream', async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      const { messages } = req.body;
+      
+      console.log(`[stream] Received request for agent: ${agentId}`);
+      
+      const agent = mastra.agents?.[agentId];
+      if (!agent) {
+        return res.status(404).json({ 
+          error: `Agent ${agentId} not found`, 
+          availableAgents: Object.keys(mastra.agents || {}),
+          requestedAgent: agentId
+        });
+      }
+      
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Messages array is required' });
+      }
+      
+      // Try to get stream before setting response headers
+      let stream;
+      try {
+        stream = await agent.stream(messages);
+      } catch (agentError) {
+        console.error('[stream] Agent execution failed:', agentError);
+        // Return error before headers are sent
+        return res.status(500).json({
+          error: agentError instanceof Error ? agentError.message : String(agentError),
+          stack: agentError instanceof Error ? agentError.stack : undefined
+        });
+      }
+      
+      // Increase timeout for long-running streams
+      req.setTimeout(300000); // 5 minutes
+      res.setTimeout(300000); // 5 minutes
+      
+      // Set up streaming response headers AFTER successful agent call
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable nginx buffering
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      
+      // Stream the response back to the client
+      if (stream && stream.textStream) {
+        try {
+          let chunkCount = 0;
+          for await (const chunk of stream.textStream) {
+            if (chunk && typeof chunk === 'string') {
+              chunkCount++;
+              res.write(chunk);
+              // Flush the buffer to send data immediately
+              if (typeof (res as any).flush === 'function') {
+                (res as any).flush();
+              }
+            }
+          }
+          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks`);
+          res.end();
+        } catch (streamError) {
+          console.error('[stream] Stream error:', streamError);
+          // Don't write error to stream, just end cleanly
+          if (!res.writableEnded) {
+            res.end();
+          }
+        }
+      } else if (stream && stream.text) {
+        res.write(stream.text);
+        res.end();
+      } else {
+        res.write('No content available');
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('[stream] Error:', error);
+      // If headers already sent, can't send JSON - just end the response
+      if (res.headersSent) {
+        if (!res.writableEnded) {
+          res.end();
+        }
+      } else {
+        res.status(500).json({
+          error: error?.message || String(error),
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+  });
+  
+  // Streaming endpoint for MastraClient compatibility (alternative name)
   app.post('/api/agents/:agentId/streamVNext', async (req: any, res: any) => {
     try {
       const { agentId } = req.params;

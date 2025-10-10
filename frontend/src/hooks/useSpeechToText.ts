@@ -1,5 +1,13 @@
 import { useState, useRef, useCallback } from 'react'
 
+// Add type declarations for Web Speech API
+declare global {
+  interface Window {
+    SpeechRecognition: any
+    webkitSpeechRecognition: any
+  }
+}
+
 interface SpeechToTextOptions {
   onTranscription?: (text: string) => void
   onError?: (error: string) => void
@@ -22,7 +30,7 @@ export function useSpeechToText(options: SpeechToTextOptions = {}) {
     error: null
   })
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<any | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
 
@@ -54,7 +62,7 @@ export function useSpeechToText(options: SpeechToTextOptions = {}) {
           options.onStart?.()
         }
 
-        recognition.onresult = (event) => {
+        recognition.onresult = (event: any) => {
           let finalTranscript = ''
           let interimTranscript = ''
 
@@ -75,7 +83,7 @@ export function useSpeechToText(options: SpeechToTextOptions = {}) {
           }
         }
 
-        recognition.onerror = (event) => {
+        recognition.onerror = (event: any) => {
           const error = `Speech recognition error: ${event.error}`
           setState(prev => ({ ...prev, error, isListening: false }))
           options.onError?.(error)
@@ -193,13 +201,5 @@ export function useSpeechToText(options: SpeechToTextOptions = {}) {
     startListening,
     stopListening,
     clearTranscript
-  }
-}
-
-// Extend Window interface for TypeScript
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition
-    webkitSpeechRecognition: typeof SpeechRecognition
   }
 }

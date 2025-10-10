@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react'
-import { mastra, getMuxAnalyticsAgentId, getDisplayHost } from '../lib/mastraClient'
+import { mastra, getMuxAnalyticsAgentId, getDisplayHost, getMastraBaseUrl } from '../lib/mastraClient'
 import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
@@ -26,7 +26,10 @@ interface Message {
  * Analytics agent interface for type safety
  */
 interface MuxAnalyticsAgent {
-  stream: (message: string, options?: Record<string, unknown>) => Promise<any>
+  stream: (params: {
+    messages: Array<{ role: string; content: string }> | string;
+    [key: string]: any;
+  }) => Promise<any>
 }
 
 /**
@@ -36,6 +39,58 @@ interface MuxAnalyticsAgent {
  */
 const MessageComponent = memo(({ message, isStreaming = false }: { message: Message; isStreaming?: boolean }) => {
   const { setCurrentVideo } = useMuxAnalytics()
+  const [detectedVideoUrl, setDetectedVideoUrl] = useState<string | null>(null)
+  const [lastAppliedAssetId, setLastAppliedAssetId] = useState<string | null>(null)
+  const [lastAppliedPlaybackId, setLastAppliedPlaybackId] = useState<string | null>(null)
+  
+  // Effect to handle video loading and updates (handles streaming updates)
+  useEffect(() => {
+    if (!detectedVideoUrl) return
+    try {
+      const url = new URL(detectedVideoUrl)
+      const assetId = url.searchParams.get('assetId') || url.searchParams.get('assetID') || url.searchParams.get('assetid') || url.searchParams.get('asset_id')
+      const playbackId = url.searchParams.get('playbackId') || url.searchParams.get('playbackID') || url.searchParams.get('playbackid') || url.searchParams.get('playback_id')
+
+      // Preconnect to player and keyserver to speed up inline playback
+      try {
+        const ensurePreconnect = (href: string) => {
+          if (!href) return
+          const url = new URL(href, window.location.href)
+          const origin = url.origin
+          const has = Array.from(document.querySelectorAll('link[rel="preconnect"]')).some((el: any) => el.href.startsWith(origin))
+          if (!has) {
+            const link = document.createElement('link')
+            link.rel = 'preconnect'
+            link.href = origin
+            link.crossOrigin = 'anonymous'
+            document.head.appendChild(link)
+          }
+        }
+        ensurePreconnect('https://stream.mux.com')
+        ensurePreconnect('https://image.mux.com')
+        ensurePreconnect('https://www.streamingportfolio.com')
+      } catch {}
+
+      // Only apply when we have meaningful update:
+      // - playbackId newly available or changed
+      // - assetId becomes valid length (>= 20) or changed
+      const isValidAssetId = assetId && assetId.length >= 20
+      const shouldUpdateByPlayback = !!playbackId && playbackId !== lastAppliedPlaybackId
+      const shouldUpdateByAsset = !!isValidAssetId && assetId !== lastAppliedAssetId
+
+      if (shouldUpdateByPlayback || shouldUpdateByAsset) {
+        setCurrentVideo({
+          assetId: isValidAssetId ? assetId || undefined : undefined,
+          playbackId: playbackId || undefined
+        })
+        if (shouldUpdateByAsset && isValidAssetId) setLastAppliedAssetId(assetId!)
+        if (shouldUpdateByPlayback) setLastAppliedPlaybackId(playbackId!)
+      }
+    } catch (error) {
+      console.error('[MessageComponent] Failed to parse video URL:', error)
+    }
+  }, [detectedVideoUrl, lastAppliedAssetId, lastAppliedPlaybackId, setCurrentVideo])
+  
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
     // More comprehensive pattern that handles various URL formats and spacing issues
@@ -48,20 +103,29 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
       /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       // With playbackId parameter (alternative format)
       /https:\/\/streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      // Snake_case params
+      /https:\/\/streamingportfolio\.com\/player\?asset_id=([a-zA-Z0-9]+)/g,
+      /https:\/\/streamingportfolio\.com\/player\?playback_id=([a-zA-Z0-9]+)/g,
       // Handle URLs with line breaks or special characters
       /https:\/\/streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g,
       // New .html format patterns
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/streamingportfolio\.com\/player\.html\?asset_id=([a-zA-Z0-9]+)/g,
+      /https:\/\/streamingportfolio\.com\/player\.html\?playback_id=([a-zA-Z0-9]+)/g,
       /https:\/\/streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g,
       // www subdomain patterns
       /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)/g,
       /https:\/\/www\.streamingportfolio\.com\/player\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       /https:\/\/www\.streamingportfolio\.com\/player\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?asset_id=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\?playback_id=([a-zA-Z0-9]+)/g,
       /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)/g,
       /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:&[^\\s]*)?/g,
       /https:\/\/www\.streamingportfolio\.com\/player\.html\?playbackId=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?asset_id=([a-zA-Z0-9]+)/g,
+      /https:\/\/www\.streamingportfolio\.com\/player\.html\?playback_id=([a-zA-Z0-9]+)/g,
       /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
     ];
     
@@ -97,94 +161,83 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
     const muxVideoUrl = detectMuxVideo(content)
     
     if (muxVideoUrl) {
-      // Extract assetId or playbackId from URL
-      const url = new URL(muxVideoUrl)
-      const assetId = url.searchParams.get('assetId')
-      const playbackId = url.searchParams.get('playbackId')
+      // Set the detected URL to trigger useEffect for loading
+      if (!detectedVideoUrl || muxVideoUrl !== detectedVideoUrl) {
+        setDetectedVideoUrl(muxVideoUrl)
+      }
       
-      // Use assetId if available, otherwise fallback to playbackId
-      const idToUse = assetId || playbackId
+      // Remove the video URL from the text content
+      const textContent = content.replace(muxVideoUrl, '').trim()
       
-      if (idToUse) {
-        // Update the main player with this video
-        setCurrentVideo({
-          assetId: assetId || undefined,
-          playbackId: playbackId || undefined
-        })
-        
-        // Remove the video URL from the text content
-        const textContent = content.replace(muxVideoUrl, '').trim()
-        
-        return (
-          <div className="space-y-3">
-            {/* Render text content first */}
-            {textContent && (
-              <div className="prose prose-sm max-w-none chat-message">
-                <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
-                  {formatTextContent(textContent)}
-                </div>
+      return (
+        <div className="space-y-3">
+          {/* Render text content first */}
+          {textContent && (
+            <div className="prose prose-sm max-w-none chat-message">
+              <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base">
+                {formatTextContent(textContent)}
               </div>
-            )}
-            {/* Show notification that audio is loaded in the main player */}
-            <div className="mt-3 p-4 rounded-lg border" style={{ 
-              backgroundColor: 'var(--overlay)', 
-              borderColor: 'var(--accent)',
-              borderWidth: '2px'
-            }}>
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">🎧</div>
-                <div className="flex-1">
-                  <div className="font-medium mb-1" style={{ color: 'var(--fg)' }}>
-                    Audio Report Loaded
-                  </div>
-                  <div className="text-sm mb-2" style={{ color: 'var(--fg-muted)' }}>
-                    Your audio report is now playing in the player on the left. Click play to listen.
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(muxVideoUrl).then(() => {
-                          // Show temporary success feedback
-                          const button = event?.target as HTMLButtonElement;
-                          const originalText = button.textContent;
-                          button.textContent = '✓ Copied!';
-                          setTimeout(() => {
-                            button.textContent = originalText;
-                          }, 2000);
-                        }).catch(err => {
-                          console.error('Failed to copy URL:', err);
-                        });
-                      }}
-                      className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
-                      style={{ 
-                        backgroundColor: 'var(--accent)', 
-                        borderColor: 'var(--accent)',
-                        color: 'var(--accent-contrast)'
-                      }}
-                    >
-                      Copy Player URL
-                    </button>
-                    <a 
-                      href={muxVideoUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
-                      style={{ 
-                        backgroundColor: 'var(--bg)', 
-                        borderColor: 'var(--border)',
-                        color: 'var(--fg)',
-                        textDecoration: 'none'
-                      }}
-                    >
-                      Open in New Tab
-                    </a>
-                  </div>
+            </div>
+          )}
+          {/* Show notification that audio is loaded in the main player */}
+          <div className="mt-3 p-4 rounded-lg border" style={{ 
+            backgroundColor: 'var(--overlay)', 
+            borderColor: 'var(--accent)',
+            borderWidth: '2px'
+          }}>
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">🎧</div>
+              <div className="flex-1">
+                <div className="font-medium mb-1" style={{ color: 'var(--fg)' }}>
+                  Audio Report Loaded
+                </div>
+                <div className="text-sm mb-2" style={{ color: 'var(--fg-muted)' }}>
+                  Your audio report is now playing in the player on the left. Click play to listen.
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      navigator.clipboard.writeText(muxVideoUrl).then(() => {
+                        // Show temporary success feedback
+                        const button = e.target as HTMLButtonElement;
+                        const originalText = button.textContent;
+                        button.textContent = '✓ Copied!';
+                        setTimeout(() => {
+                          button.textContent = originalText;
+                        }, 2000);
+                      }).catch(err => {
+                        console.error('Failed to copy URL:', err);
+                      });
+                    }}
+                    className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
+                    style={{ 
+                      backgroundColor: 'var(--accent)', 
+                      borderColor: 'var(--accent)',
+                      color: 'var(--accent-contrast)'
+                    }}
+                  >
+                    Copy Player URL
+                  </button>
+                  <a 
+                    href={muxVideoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
+                    style={{ 
+                      backgroundColor: 'var(--bg)', 
+                      borderColor: 'var(--border)',
+                      color: 'var(--fg)',
+                      textDecoration: 'none'
+                    }}
+                  >
+                    Open in New Tab
+                  </a>
                 </div>
               </div>
             </div>
           </div>
-        )
-      }
+        </div>
+      )
     }
 
     // Check for image URL
@@ -350,30 +403,20 @@ export default function MuxAnalyticsChat() {
     loadAgent()
   }, [])
 
-  // Auto-scroll to bottom when new messages arrive with smooth behavior
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+  // Only scroll to bottom when user sends a new message (not during streaming)
+  const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTo({
-        top: scrollRef.current.scrollHeight,
-        behavior
-      })
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [])
 
-  // Initial scroll without animation when messages change significantly
+  // Scroll to bottom only when a new message is added (user sends or assistant starts responding)
   useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom('auto')
+    // Only scroll when message count changes, not during streaming
+    if (messages.length > 0 && !isStreaming) {
+      scrollToBottom()
     }
-  }, [messages.length, scrollToBottom])
-
-  // Smooth scroll during streaming with throttling
-  useEffect(() => {
-    if (isStreaming) {
-      const timeoutId = setTimeout(() => scrollToBottom('smooth'), 50)
-      return () => clearTimeout(timeoutId)
-    }
-  }, [streamingContent, isStreaming, scrollToBottom])
+  }, [messages.length, scrollToBottom, isStreaming])
 
   /**
    * Handles sending a message to the analytics agent
@@ -411,7 +454,7 @@ export default function MuxAnalyticsChat() {
       
       console.log('[MuxAnalyticsChat] Sending message:', trimmed)
       
-      // Convert our message history to the format expected by the agent
+      // Convert our message history to the format expected by the backend
       const messageHistory = messages.map(msg => ({
         role: msg.role,
         content: msg.content
@@ -419,106 +462,85 @@ export default function MuxAnalyticsChat() {
       
       // Add the new user message
       messageHistory.push({ role: 'user', content: trimmed })
-      
-      // Try direct API call first to get raw streaming response
-      try {
-        
-        const response = await fetch('/api/agents/mux-analytics/streamVNext', {
+
+      const baseUrl = getMastraBaseUrl().replace(/\/$/, '')
+
+      // Helper to stream from a specific endpoint
+      const streamFrom = async (endpointPath: string) => {
+        const response = await fetch(`${baseUrl}${endpointPath}`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messages: messageHistory
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: messageHistory })
         })
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        }
-
-        console.log('[MuxAnalyticsChat] Direct API response received, processing stream...')
-        
-        // Handle streaming response
         const reader = response.body?.getReader()
-        if (reader) {
-          const decoder = new TextDecoder()
-          let fullContent = ''
-          
-          try {
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              
-              const chunk = decoder.decode(value, { stream: true })
-              if (chunk) {
-                fullContent += chunk
-                setStreamingContent(fullContent)
-                console.log('[MuxAnalyticsChat] Streamed chunk:', chunk.length, 'chars')
-              }
-            }
-            console.log('[MuxAnalyticsChat] Final content length:', fullContent.length)
-          } finally {
-            reader.releaseLock()
-          }
-        } else {
-          // Fallback to text response
+        if (!reader) {
           const textContent = await response.text()
           setStreamingContent(textContent)
           console.log('[MuxAnalyticsChat] Text content length:', textContent.length)
+          return true
         }
-      } catch (apiError) {
-        console.warn('[MuxAnalyticsChat] Direct API failed, trying MastraClient:', apiError)
-        
-        // Fallback to MastraClient
-        const response = await agent.stream(messageHistory)
-        
-        console.log('[MuxAnalyticsChat] Received MastraClient response:', response)
-        
-        // Handle streaming response
-        if (response.textStream) {
-          console.log('[MuxAnalyticsChat] Processing textStream...')
-          let fullContent = ''
-          for await (const chunk of response.textStream) {
-            if (chunk && typeof chunk === 'string') {
+
+        const decoder = new TextDecoder()
+        let fullContent = ''
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            const chunk = decoder.decode(value, { stream: true })
+            if (chunk) {
               fullContent += chunk
               setStreamingContent(fullContent)
               console.log('[MuxAnalyticsChat] Streamed chunk:', chunk.length, 'chars')
             }
           }
           console.log('[MuxAnalyticsChat] Final content length:', fullContent.length)
-        } else if (response.text) {
-          console.log('[MuxAnalyticsChat] Processing text response...')
-          // Handle non-streaming response
-          const textContent = typeof response.text === 'function' ? await response.text() : response.text
-          setStreamingContent(textContent)
-          console.log('[MuxAnalyticsChat] Text content length:', textContent.length)
-        } else if (response.processDataStream) {
-          console.log('[MuxAnalyticsChat] Processing processDataStream...')
-          // Handle Mastra's processDataStream format
-          let fullContent = ''
-          await response.processDataStream({
-            onChunk: async (chunk: any) => {
-              if (chunk && chunk.content) {
-                fullContent += chunk.content
-                setStreamingContent(fullContent)
-                console.log('[MuxAnalyticsChat] Processed chunk:', chunk.content.length, 'chars')
-              }
-            }
-          })
-          console.log('[MuxAnalyticsChat] Processed content length:', fullContent.length)
-        } else {
-          console.warn('[MuxAnalyticsChat] No recognized response format:', Object.keys(response))
-          // Try to extract any text content from the response
-          const responseText = response.toString() || JSON.stringify(response)
-          setStreamingContent(responseText)
+          return true
+        } catch (e) {
+          console.warn('[MuxAnalyticsChat] Stream interrupted:', e)
+          // If we have meaningful content, keep it and treat as success
+          if (fullContent.trim().length > 0) {
+            console.log('[MuxAnalyticsChat] Using partial content from interrupted stream')
+            return true
+          }
+          throw e
+        } finally {
+          try { reader.releaseLock() } catch {}
         }
+      }
+
+      // Try modern endpoints in order
+      const endpoints = [
+        '/api/agents/mux-analytics/stream',
+        '/api/agents/mux-analytics/streamVNext',
+        '/api/agents/mux-analytics/stream/vnext'
+      ]
+
+      let success = false
+      let lastError: any = null
+      for (const ep of endpoints) {
+        try {
+          console.log('[MuxAnalyticsChat] Attempting endpoint:', `${baseUrl}${ep}`)
+          success = await streamFrom(ep)
+          if (success) break
+        } catch (e) {
+          lastError = e
+          console.warn('[MuxAnalyticsChat] Endpoint failed:', `${baseUrl}${ep}`, e)
+        }
+      }
+
+      if (!success) {
+        throw lastError || new Error('All streaming endpoints failed')
       }
     } catch (error) {
       console.error('[MuxAnalyticsChat] Error:', error)
       const errorMessage = error instanceof Error ? error.message : String(error)
-      setError(errorMessage)
-      setStreamingContent(`Error: ${errorMessage}`)
+      // Only surface error if we truly have no content
+      setError(prev => prev || (streamingContent.trim().length === 0 ? errorMessage : null))
+      if (streamingContent.trim().length === 0) {
+        setStreamingContent(`Error: ${errorMessage}`)
+      }
     } finally {
       setIsLoading(false)
       setIsStreaming(false)
@@ -595,9 +617,7 @@ export default function MuxAnalyticsChat() {
         className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-4 p-4 rounded-lg border overflow-y-auto"
         style={{ 
           backgroundColor: 'var(--bg-soft)', 
-          borderColor: 'var(--border)',
-          scrollBehavior: 'smooth',
-          overflowAnchor: 'none'
+          borderColor: 'var(--border)'
         }}
       >
         {messages.length === 0 ? (
