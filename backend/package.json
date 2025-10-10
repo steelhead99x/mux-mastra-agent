@@ -5,10 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "npm run ensure-env && mastra dev & npm run watch-env",
+    "dev": "npm run ensure-env && mastra dev",
     "dev:custom": "tsx --watch src/index.ts",
     "ensure-env": "./scripts/ensure-env-symlink.sh",
-    "watch-env": "while true; do sleep 5; ./scripts/post-build-env.sh; done",
     "build": "npm run test && NODE_OPTIONS=--max-old-space-size=2048 npm run compile",
     "compile": "NODE_OPTIONS=--max-old-space-size=2048 tsc --build --verbose",
     "clean": "rm -rf dist .mastra",

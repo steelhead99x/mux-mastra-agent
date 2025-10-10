@@ -32,9 +32,8 @@ fi
 # Create symlink to root .env
 ln -sf "$ROOT_ENV" "$OUTPUT_ENV"
 
-# Verify the symlink works
-if [ -L "$OUTPUT_ENV" ] && [ -f "$OUTPUT_ENV" ]; then
-    echo "[post-build] ✅ .env symlink created successfully"
-else
+# Verify the symlink works (silent on success)
+if [ ! -L "$OUTPUT_ENV" ] || [ ! -f "$OUTPUT_ENV" ]; then
     echo "[post-build] ❌ Failed to create .env symlink"
+    exit 1
 fi

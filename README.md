@@ -1,194 +1,280 @@
 # Mux Mastra Agent
 
-AI-powered video streaming analytics agent with Mastra backend and React frontend.
+AI-powered video streaming analytics and media management agents built with [Mastra](https://mastra.ai), featuring intelligent insights for Mux video content.
+
+## ✨ Features
+
+- **🤖 Dual AI Agents**
+  - **Mux Analytics Agent**: Get AI-powered insights from your Mux video metrics, views, and errors
+  - **Media Vault Agent**: Upload and manage video content with weather-aware features
+- **🔌 MCP Integration**: Native Mux API integration via Model Context Protocol
+- **🔒 Secure by Default**: Signed playback URLs for protected video content
+- **🎙️ Audio Reports**: Generate spoken summaries of video analytics with TTS
+- **📊 Visual Analytics**: Chart generation for video metrics and trends
+- **⚡ Modern Stack**: React frontend + Mastra backend with streaming support
 
 ## 🚀 Quick Start
 
-1. **Setup Environment**
-   ```bash
-   cp env.example .env
-   # Edit .env with your API keys
-   ```
+### Prerequisites
 
-2. **Install Dependencies**
+- **Node.js 24+** (required)
+- Mux account with API credentials
+- Anthropic API key (for Claude AI)
+
+### Setup
+
+1. **Clone and Install**
    ```bash
+   git clone <your-repo>
+   cd mux-mastra-agent
    npm run install:all
    ```
 
-3. **Choose Your Development Mode**
+2. **Configure Environment**
+   ```bash
+   cp env.example .env
+   ```
+   
+   Edit `.env` and add your credentials:
+   ```bash
+   # Required
+   ANTHROPIC_API_KEY=your_key_here
+   MUX_TOKEN_ID=your_token_id_here
+   MUX_TOKEN_SECRET=your_token_secret_here
+   
+   # Optional (for TTS features)
+   DEEPGRAM_API_KEY=your_key_here
+   ```
+
+3. **Start Development**
+   ```bash
+   # Full-stack mode (frontend + backend)
+   npm run dev
+   
+   # OR Mastra Playground (agent testing)
+   npm run dev:playground
+   ```
+
+### Access Points
+
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:3001
+- **Mastra Playground**: http://localhost:3001 (when using `dev:playground`)
 
 ## 🎮 Development Modes
 
-### Option 1: Mastra Playground (Recommended for Agent Development)
-**Best for:** Testing agents, debugging, prototyping
-```bash
-npm run dev:playground
+| Command | Description | Best For |
+|---------|-------------|----------|
+| `npm run dev` | Full-stack with React frontend | Frontend development, full app testing |
+| `npm run dev:playground` | Mastra playground only | Agent development, debugging, testing |
+| `npm run dev:backend:custom` | Backend API only | Backend/API development |
+| `npm run dev:frontend` | Frontend only | UI development (requires backend running) |
+
+## 🤖 Agents
+
+### Mux Analytics Agent (`mux-analytics`)
+
+Get AI-powered insights from your Mux video data.
+
+**Capabilities:**
+- Query video analytics and metrics
+- Analyze viewer behavior and errors
+- Generate audio reports of analytics
+- Create visual charts of video performance
+- List and inspect video assets
+
+**Example queries:**
+- "Show me my recent video analytics"
+- "What errors occurred in the last 24 hours?"
+- "Generate an audio report of my video performance"
+
+### Media Vault Agent (`media-vault`)
+
+Upload and manage video content with intelligent features.
+
+**Capabilities:**
+- Upload videos to Mux
+- Create video assets from URLs
+- Weather-aware video recommendations
+- Chart generation for weather data
+- Automatic signed playback URLs
+
+**Example queries:**
+- "Upload this video file"
+- "What's the weather forecast for tomorrow?"
+- "Create a video asset from this URL"
+
+## 📁 Project Structure
+
 ```
-- **URL:** `http://localhost:3001`
-- **Features:** Built-in playground UI, agent testing, debugging tools
-
-### Option 2: Full-Stack Development (Recommended for Frontend Development)
-**Best for:** Testing React frontend, full application testing
-```bash
-npm run dev
+mux-mastra-agent/
+├── backend/                # Mastra backend server
+│   ├── src/
+│   │   ├── agents/        # AI agents (mux-analytics, media-vault)
+│   │   ├── mcp/           # MCP client integrations
+│   │   ├── tools/         # Agent tools and capabilities
+│   │   └── index.ts       # Express server + Mastra setup
+│   └── package.json
+├── frontend/              # React frontend
+│   ├── src/
+│   │   ├── components/    # UI components
+│   │   └── contexts/      # React contexts (Mux analytics)
+│   └── package.json
+├── shared/                # Shared types and utilities
+└── .env                   # Environment configuration
 ```
-- **Frontend:** `http://localhost:3000`
-- **Backend:** `http://localhost:3001`
-- **Features:** React app + API endpoints
 
-### Option 3: Custom Backend Only
-**Best for:** API testing, backend development
+## 🔧 Configuration
+
+### Mux Configuration
+
+By default, the agent uses:
+- **MCP integration** for all Mux operations (recommended)
+- **Signed playback URLs** for secure video access
+
+To customize:
+
 ```bash
-npm run dev:backend:custom
+# Use REST API instead of MCP (not recommended)
+USE_MUX_MCP=false
+
+# Use public playback URLs (less secure)
+MUX_PLAYBACK_POLICY=public
+
+# For signed URLs, add signing keys
+MUX_SIGNING_KEY_ID=your_signing_key_id
+MUX_SIGNING_KEY_SECRET=your_base64_private_key
 ```
-- **Backend:** `http://localhost:3001`
-- **Features:** Express server with API endpoints
 
-## 🔧 Port Configuration
-
-Configure ports in your `.env` file:
+### Port Configuration
 
 ```bash
-# Backend port (Mastra playground + Express server)
 BACKEND_PORT=3001
-
-# Frontend port (React dev server)
 FRONTEND_PORT=3000
-
-# Mastra playground port (when using mastra dev)
-MASTRA_PLAYGROUND_PORT=3001
 ```
 
-**Default Ports:**
-- **Frontend:** `3000`
-- **Backend:** `3001`
-- **Playground:** `3001`
-
-## 📋 Available Scripts
-
-| Command | Description | Mode |
-|---------|-------------|------|
-| `npm run dev` | Full-stack (frontend + backend) | Custom Express |
-| `npm run dev:playground` | Mastra playground only | Playground |
-| `npm run dev:backend` | Backend only (playground) | Playground |
-| `npm run dev:backend:custom` | Backend only (custom) | Custom Express |
-| `npm run dev:frontend` | Frontend only | - |
-| `npm run build` | Build for production | - |
-| `npm run start:prod` | Start production server | - |
-
-## 🌐 URLs
-
-### Playground Mode
-- **Playground UI:** `http://localhost:3001`
-- **Health Check:** `http://localhost:3001/health`
-
-### Full-Stack Mode
-- **Frontend:** `http://localhost:3000`
-- **Backend API:** `http://localhost:3001`
-- **Health Check:** `http://localhost:3001/health`
-
-## 🔑 Required Environment Variables
+### CORS Configuration
 
 ```bash
-# AI Model
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-
-# Mux Video API
-MUX_TOKEN_ID=your_mux_token_id_here
-MUX_TOKEN_SECRET=your_mux_token_secret_here
-
-# Optional: Mastra API
-MASTRA_API_KEY=your_mastra_api_key_here
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001
 ```
 
-## 🛠️ Contributing
-
-### Project Structure
-```
-├── backend/          # Mastra backend (agents, tools, MCP)
-├── frontend/         # React frontend
-├── shared/           # Shared types and utilities
-└── .env              # Environment configuration
-```
-
-### Development Workflow
-
-1. **For Agent Development:**
-   ```bash
-   npm run dev:playground
-   # Test agents in Mastra playground
-   ```
-
-2. **For Frontend Development:**
-   ```bash
-   npm run dev
-   # Develop React components
-   ```
-
-3. **For Backend API Development:**
-   ```bash
-   npm run dev:backend:custom
-   # Test API endpoints
-   ```
-
-### Code Organization
-
-- **Agents:** `backend/src/agents/`
-- **Tools:** `backend/src/tools/`
-- **MCP Clients:** `backend/src/mcp/`
-- **Frontend Components:** `frontend/src/components/`
-- **API Endpoints:** `backend/src/index.ts`
-
-### Testing
+## 🧪 Testing
 
 ```bash
 # Run all tests
-npm run test
+npm test
 
-# Run backend tests
+# Backend tests only
 npm run test:backend
 
-# Run frontend tests
+# Frontend tests only
 npm run test:frontend
+
+# Watch mode
+npm run test:watch
 ```
 
-## 🚀 Production
+## 🏗️ Building for Production
 
 ```bash
+# Build both frontend and backend
+npm run build
+
+# Start production server
 npm run start:prod
 ```
 
-Production automatically:
-- Builds frontend and backend
+The production server:
 - Serves frontend as static files
-- Runs optimized backend server
+- Runs optimized backend on port 3001
 - Uses production environment variables
 
-## 📚 Documentation
+## 📚 API Endpoints
 
-- **Development Modes:** See `DEVELOPMENT_MODES.md`
-- **Environment Variables:** See `env.example`
-- **API Endpoints:** See `backend/src/index.ts`
+### Core Endpoints
+
+- `GET /health` - Health check with MCP status
+- `POST /api/agents/:agentId/chat` - Chat with agent (streaming)
+- `GET /api/agents/:agentId/tts-audio/:filename` - Get TTS audio file
+
+### Debug Endpoints (Development Only)
+
+- `GET /debug/mcp` - MCP connection status
+- `GET /debug/agents` - List registered agents
+- `GET /debug/tools` - List available tools
+
+## 🔒 Security Features
+
+- **API Key Validation**: Automatic validation and sanitization
+- **Signed Playback URLs**: Default secure video access
+- **CORS Protection**: Configurable origin restrictions
+- **Environment Separation**: Development vs production configs
 
 ## 🆘 Troubleshooting
 
-### Port Conflicts
-If ports are in use, update `.env`:
-```bash
-BACKEND_PORT=3002
-FRONTEND_PORT=3001
-```
+### Common Issues
 
-### Environment Issues
+**"Agent not found"**
+- Verify agent ID: `mux-analytics` or `media-vault`
+- Check backend logs for agent registration
+
+**"MCP connection failed"**
+- Ensure Mux credentials are set in `.env`
+- Check MCP status at `/debug/mcp`
+- Verify `@mux/mcp` package is installed
+
+**Port conflicts**
+- Update `BACKEND_PORT` and `FRONTEND_PORT` in `.env`
+- Kill existing processes: `lsof -ti:3001 | xargs kill`
+
+**CORS errors**
+- Add your origin to `CORS_ORIGINS` in `.env`
+- Restart backend after changes
+
+### Debug Tools
+
 ```bash
-# Check environment loading
+# Check health
 curl http://localhost:3001/health
 
-# Check MCP connection
+# Check MCP status
 curl http://localhost:3001/debug/mcp
+
+# List agents
+curl http://localhost:3001/debug/agents
 ```
 
-### Common Issues
-- **"Failed to fetch"**: Check CORS configuration in `.env`
-- **"Agent not found"**: Verify agent is registered in `backend/src/index.ts`
-- **Port conflicts**: Update port configuration in `.env`
+## 📖 Documentation
+
+- **[AGENT_MCP_CONFIGURATION.md](AGENT_MCP_CONFIGURATION.md)** - Agent configuration guide
+- **[CHANGES_SUMMARY.md](CHANGES_SUMMARY.md)** - Recent changes and fixes
+- **[DEVELOPMENT_MODES.md](DEVELOPMENT_MODES.md)** - Detailed development mode guide
+- **[env.example](env.example)** - Complete environment variable reference
+
+## 🛠️ Tech Stack
+
+- **AI Framework**: [Mastra](https://mastra.ai)
+- **AI Models**: Claude (Anthropic)
+- **Video Platform**: [Mux](https://mux.com)
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Backend**: Express, Node.js 24+
+- **TTS**: Deepgram Aura
+- **Charts**: Chart.js with Canvas
+- **MCP**: @mux/mcp, @mastra/mcp
+
+## 📝 License
+
+This project is private and proprietary.
+
+## 🤝 Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Run tests: `npm test`
+4. Run type checking: `npm run typecheck`
+5. Submit a pull request
+
+---
+
+Built with ❤️ using [Mastra](https://mastra.ai) and [Mux](https://mux.com)
