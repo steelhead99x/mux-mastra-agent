@@ -2,15 +2,26 @@ import { config } from 'dotenv';
 import { resolve as resolvePath } from 'path';
 import { existsSync } from 'fs';
 
-// Simplified environment loading - only look for root .env file
-// This ensures all environment variables are managed in one place
-const rootEnvPath = resolvePath(process.cwd(), '../.env');
+// Environment loading - try multiple locations
+const possibleEnvPaths = [
+  resolvePath(process.cwd(), '../.env'),           // Root .env (when running from backend/)
+  resolvePath(process.cwd(), '../../.env'),        // Root .env (when running from .mastra/output/)
+  resolvePath(process.cwd(), '.env'),              // Local .env
+  resolvePath(process.cwd(), '../.env')            // Parent .env
+];
 
-if (existsSync(rootEnvPath)) {
-  console.log('[env] Loading from root .env:', rootEnvPath);
-  config({ path: rootEnvPath });
-} else {
-  console.warn('[env] No .env file found at root. Please copy env.example to .env and configure your variables.');
+let envLoaded = false;
+for (const envPath of possibleEnvPaths) {
+  if (existsSync(envPath)) {
+    console.log('[env] Loading from:', envPath);
+    config({ path: envPath });
+    envLoaded = true;
+    break;
+  }
+}
+
+if (!envLoaded) {
+  console.warn('[env] No .env file found. Please copy env.example to .env and configure your variables.');
   console.warn('[env] Relying on system environment variables.');
   config(); // Load from default location
 }

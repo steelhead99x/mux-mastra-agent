@@ -613,14 +613,13 @@ class MuxMCPClient {
                                 }
                             }
                             
-                            // Additional safety: Remove any other potentially problematic nested objects
-                            const problematicKeys = ['new_asset_settings', 'playback_policies', 'cors_origin'];
-                            problematicKeys.forEach((key: string) => {
-                                if (filteredCtx[key]) {
-                                    console.debug(`[invoke_api_endpoint] Removing potentially problematic key: ${key}`);
-                                    delete filteredCtx[key];
-                                }
-                            });
+                            // NOTE: We already processed new_asset_settings above, so don't remove it here
+                            // NOTE: cors_origin is REQUIRED by Mux API, so we must NOT remove it
+                            // Only remove standalone playback_policies if it exists (shouldn't normally)
+                            if (filteredCtx.playback_policies && !filteredCtx.new_asset_settings) {
+                                console.debug(`[invoke_api_endpoint] Removing standalone playback_policies`);
+                                delete filteredCtx.playback_policies;
+                            }
                             
                             const attemptArgs = [
                                 // Correct Mux MCP format - endpoint_name with nested args

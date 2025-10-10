@@ -607,7 +607,8 @@ export const muxErrorsTool = createTool({
 });
 
 /**
- * Format analytics data into a concise text summary (under 1000 words)
+ * Format analytics data into a concise, conversational text summary (under 1000 words)
+ * Optimized for natural-sounding text-to-speech output
  */
 export function formatAnalyticsSummary(
     metrics: any,
@@ -616,74 +617,113 @@ export function formatAnalyticsSummary(
 ): string {
     const parts: string[] = [];
     
-    // Header
-    parts.push(`Mux Video Streaming Analytics Report`);
-    parts.push(`Time Range: ${new Date(timeRange.start).toLocaleString()} to ${new Date(timeRange.end).toLocaleString()}`);
+    // Conversational header
+    parts.push(`Hello! Here's your Mux Video Streaming Analytics Report.`);
+    
+    const startDate = new Date(timeRange.start);
+    const endDate = new Date(timeRange.end);
+    const startReadable = startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const endReadable = endDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    
+    parts.push(`This report covers the time period from ${startReadable} to ${endReadable}.`);
     parts.push('');
     
-    // Health Score
-    parts.push(`Overall Health Score: ${analysis.healthScore} out of 100`);
+    // Health Score - more conversational
+    parts.push(`Let's start with your overall health score... which is ${analysis.healthScore} out of 100.`);
     parts.push(analysis.summary);
     parts.push('');
     
-    // Key Metrics
-    parts.push('Key Performance Indicators:');
+    // Key Metrics - conversational style
+    parts.push('Now, let me walk you through the key performance indicators.');
+    
     if (metrics.total_views !== undefined) {
-        parts.push(`- Total Views: ${metrics.total_views.toLocaleString()}`);
+        parts.push(`First, you had a total of ${metrics.total_views.toLocaleString()} views during this period.`);
     }
+    
     if (metrics.total_playing_time_seconds !== undefined) {
         const hours = Math.floor(metrics.total_playing_time_seconds / 3600);
         const minutes = Math.floor((metrics.total_playing_time_seconds % 3600) / 60);
-        parts.push(`- Total Watch Time: ${hours}h ${minutes}m`);
+        parts.push(`Your viewers watched for a combined ${hours} hours and ${minutes} minutes.`);
     }
+    
     if (metrics.average_startup_time_ms !== undefined) {
-        parts.push(`- Average Startup Time: ${(metrics.average_startup_time_ms / 1000).toFixed(2)} seconds`);
+        const startupSeconds = (metrics.average_startup_time_ms / 1000).toFixed(1);
+        parts.push(`Videos took an average of ${startupSeconds} seconds to start playing.`);
     }
+    
     if (metrics.total_rebuffer_percentage !== undefined) {
-        parts.push(`- Rebuffering Rate: ${metrics.total_rebuffer_percentage.toFixed(2)}%`);
+        const rebufferPct = metrics.total_rebuffer_percentage.toFixed(1);
+        if (metrics.total_rebuffer_percentage < 2) {
+            parts.push(`Rebuffering was minimal at just ${rebufferPct} percent... that's excellent!`);
+        } else if (metrics.total_rebuffer_percentage < 5) {
+            parts.push(`The rebuffering rate was ${rebufferPct} percent... which is within acceptable range.`);
+        } else {
+            parts.push(`The rebuffering rate was ${rebufferPct} percent... which needs attention.`);
+        }
     }
+    
     if (metrics.total_error_percentage !== undefined) {
-        parts.push(`- Error Rate: ${metrics.total_error_percentage.toFixed(2)}%`);
+        const errorPct = metrics.total_error_percentage.toFixed(1);
+        if (metrics.total_error_percentage < 1) {
+            parts.push(`Error rate was excellent at just ${errorPct} percent.`);
+        } else if (metrics.total_error_percentage < 3) {
+            parts.push(`Error rate was ${errorPct} percent... that's acceptable but could be improved.`);
+        } else {
+            parts.push(`Error rate was ${errorPct} percent... which definitely needs investigation.`);
+        }
     }
     parts.push('');
     
-    // Issues
+    // Issues - more conversational
     if (analysis.issues.length > 0) {
-        parts.push('Issues Identified:');
+        if (analysis.issues.length === 1) {
+            parts.push('I identified one issue that needs your attention.');
+        } else {
+            parts.push(`I found ${analysis.issues.length} issues that need your attention.`);
+        }
+        
         analysis.issues.forEach((issue, i) => {
-            parts.push(`${i + 1}. ${issue}`);
+            parts.push(`Issue number ${i + 1}... ${issue}`);
         });
         parts.push('');
     }
     
-    // Recommendations
+    // Recommendations - conversational
     if (analysis.recommendations.length > 0) {
-        parts.push('Engineering Recommendations:');
+        if (analysis.recommendations.length === 1) {
+            parts.push('Here is my recommendation to improve performance.');
+        } else {
+            parts.push(`I have ${analysis.recommendations.length} recommendations to improve your streaming performance.`);
+        }
+        
         analysis.recommendations.forEach((rec, i) => {
-            parts.push(`${i + 1}. ${rec}`);
+            parts.push(`Recommendation ${i + 1}... ${rec}`);
         });
         parts.push('');
     }
     
-    // Positive notes
+    // Closing summary - conversational tone
     if (analysis.healthScore >= 90) {
-        parts.push('Your streaming infrastructure is performing exceptionally well. Continue monitoring for any changes in traffic patterns or new device types.');
+        parts.push('Overall... your streaming infrastructure is performing exceptionally well! Keep up the great work and continue monitoring for any changes in traffic patterns or new device types.');
     } else if (analysis.healthScore >= 75) {
-        parts.push('Overall performance is good, with some areas for optimization. Address the recommendations above to improve user experience.');
+        parts.push('Overall... your performance is good, with just some areas for optimization. I recommend addressing the items above to improve your user experience.');
     } else if (analysis.healthScore >= 50) {
-        parts.push('Performance needs improvement. Focus on the critical issues first, particularly those affecting playback reliability.');
+        parts.push('Overall... your performance needs some improvement. I suggest focusing on the critical issues first, particularly those affecting playback reliability.');
     } else {
-        parts.push('Critical attention required. Multiple performance issues detected that significantly impact user experience. Prioritize immediate remediation.');
+        parts.push('I need to be honest with you... this requires critical attention. Multiple performance issues were detected that are significantly impacting user experience. Please prioritize immediate remediation of these issues.');
     }
     
-    const summary = parts.join(' ');
+    parts.push('');
+    parts.push('That concludes your analytics report. Thank you for listening!');
+    
+    const summary = parts.join('\n');
     
     // Ensure under 1000 words
     const wordCount = summary.split(/\s+/).length;
     if (wordCount > 1000) {
-        // Truncate to ~900 words to be safe
-        const words = summary.split(/\s+/).slice(0, 900);
-        return words.join(' ') + '... (Summary truncated to stay under 1000 words)';
+        // Truncate to ~950 words to be safe
+        const words = summary.split(/\s+/).slice(0, 950);
+        return words.join(' ') + '... This summary has been truncated to stay under one thousand words. Thank you for listening.';
     }
     
     return summary;

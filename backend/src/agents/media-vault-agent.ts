@@ -358,23 +358,11 @@ async function performAssetPolling(assetId: string, {
             console.debug(`[performAssetPolling] Asset ${assetId} status: ${status} (${Math.round(elapsedMs / 1000)}s elapsed, next check in ${currentPollInterval / 1000}s)`);
             
             if (status === 'ready' && 'playback_ids' in lastPayload) {
-                let playbackId = Array.isArray(lastPayload.playback_ids) && lastPayload.playback_ids.length > 0
+                const playbackId = Array.isArray(lastPayload.playback_ids) && lastPayload.playback_ids.length > 0
                     ? (lastPayload.playback_ids[0]?.id as string | undefined)
                     : undefined;
                 
-                // If no playback ID exists, create one
-                if (!playbackId) {
-                    try {
-                        console.debug(`[performAssetPolling] No playback ID found for asset ${assetId}, creating one...`);
-                        playbackId = await createPlaybackId(assetId);
-                        console.debug(`[performAssetPolling] Created playback ID: ${playbackId}`);
-                    } catch (error) {
-                        const errorMsg = error instanceof Error ? error.message : String(error);
-                        console.warn(`[performAssetPolling] Failed to create playback ID for asset ${assetId}: ${errorMsg}`);
-                    }
-                }
-                
-                console.log(`[performAssetPolling] Asset ${assetId} is ready! Playback ID: ${playbackId}`);
+                console.log(`[performAssetPolling] Asset ${assetId} is ready! Playback ID: ${playbackId || 'none'}`);
                 return {
                     status,
                     playbackId,
@@ -1238,6 +1226,7 @@ const ttsWeatherTool = createTool({
                 // Create upload
                 const uploadData = await createMuxUpload();
                 uploadId = uploadData.uploadId;
+                assetId = uploadData.assetId;
                 const uploadUrl = uploadData.uploadUrl;
                 
                 if (!uploadUrl) {
@@ -1246,14 +1235,15 @@ const ttsWeatherTool = createTool({
                 
                 console.debug(`[tts-weather-upload] Upload URL: ${uploadUrl}`);
                 if (uploadId) console.debug(`[tts-weather-upload] Upload ID: ${uploadId}`);
+                if (assetId) console.debug(`[tts-weather-upload] Asset ID: ${assetId}`);
 
                 console.debug('[tts-weather-upload] Uploading audio file to Mux...');
                 await putFileToMux(uploadUrl, resolve(audioPath));
                 console.debug('[tts-weather-upload] Audio file upload completed');
 
-                // Build player URL immediately from uploadId (non-blocking response)
-                if (uploadId) {
-                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${uploadId}`;
+                // Build player URL immediately from assetId (non-blocking response)
+                if (assetId) {
+                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
                     console.debug(`[tts-weather-upload] Player URL: ${playerUrl}`);
                 }
 
@@ -1278,39 +1268,27 @@ const ttsWeatherTool = createTool({
                 // Start background processing that doesn't block the response
                 assetReadyPromise = (async () => {
                     try {
-                        // Step 1: Retrieve asset ID from upload
-                        console.debug('[tts-weather-upload] Background: Retrieving asset ID from upload...');
-                        const retrievedAssetId = uploadId ? await retrieveAssetIdFromUpload(uploadId) : undefined;
+                        // Step 1: Retrieve asset ID from upload (if not already available)
+                        const retrievedAssetId = assetId || (uploadId ? await retrieveAssetIdFromUpload(uploadId) : undefined);
                         
                         if (!retrievedAssetId) {
-                            console.warn('[tts-weather-upload] Background: No asset ID retrieved, using upload ID');
+                            console.warn('[tts-weather-upload] Background: No asset ID available');
                             return { assetId: uploadId, playbackId: undefined, status: 'processing' };
                         }
                         
-                        console.debug(`[tts-weather-upload] Background: Retrieved asset ID: ${retrievedAssetId}`);
+                        console.debug(`[tts-weather-upload] Background: Using asset ID: ${retrievedAssetId}`);
                         
-                        // Step 2: Create playback ID for the asset
-                        let playbackId: string | undefined;
-                        try {
-                            console.debug('[tts-weather-upload] Background: Creating playback ID for asset...');
-                            playbackId = await createPlaybackId(retrievedAssetId);
-                            console.debug(`[tts-weather-upload] Background: Created playback ID: ${playbackId}`);
-                        } catch (error) {
-                            const errorMsg = error instanceof Error ? error.message : String(error);
-                            console.warn(`[tts-weather-upload] Background: Failed to create playback ID: ${errorMsg}`);
-                        }
-                        
-                        // Step 3: Wait for asset to be ready (with the retrieved asset ID)
+                        // Step 2: Wait for asset to be ready
                         console.debug('[tts-weather-upload] Background: Starting asset readiness polling...');
                         const result = await waitForMuxAssetReady(retrievedAssetId, {
                             pollMs: 5000, // Initial poll interval (will be overridden by progressive logic)
                             timeoutMs: totalTimeoutMs
                         });
                         
-                        console.log(`[tts-weather-upload] Background: Asset ${retrievedAssetId} is ready! Status: ${result.status}, Playback ID: ${result.playbackId}`);
+                        console.log(`[tts-weather-upload] Background: Asset ${retrievedAssetId} is ready! Status: ${result.status}`);
                         return {
                             assetId: retrievedAssetId,
-                            playbackId: result.playbackId || playbackId,
+                            playbackId: result.playbackId,
                             status: result.status,
                             hlsUrl: result.hlsUrl,
                             playerUrl: result.playerUrl
@@ -1361,9 +1339,9 @@ const ttsWeatherTool = createTool({
                 console.debug('[tts-weather-upload] Cleanup completed');
             }
 
-            // Always include playerUrl if we know uploadId
-            if (!playerUrl && uploadId) {
-                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${uploadId}`;
+            // Always include playerUrl if we know assetId
+            if (!playerUrl && assetId) {
+                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
             }
 
             // Determine success based on what we achieved

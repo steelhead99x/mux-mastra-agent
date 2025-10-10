@@ -47,16 +47,28 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-// Generate TTS with Deepgram
+// Generate TTS with Deepgram - Enhanced for natural-sounding speech
 async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
     const apiKey = process.env.DEEPGRAM_API_KEY;
     if (!validateApiKey(apiKey, 'DEEPGRAM_API_KEY')) {
         throw new Error('DEEPGRAM_API_KEY is required and must be valid');
     }
+    
+    // Use high-quality Aura models for more natural speech
     const model = process.env.DEEPGRAM_TTS_MODEL || process.env.DEEPGRAM_VOICE || 'aura-asteria-en';
+    
+    // Prepare text for more natural speech by adding pauses
+    const naturalText = text
+        .replace(/\n\n/g, '... ')  // Add pauses between paragraphs
+        .replace(/:\s/g, '... ')    // Add thoughtful pauses after colons
+        .replace(/\.\s+([A-Z])/g, '... $1')  // Add pauses between sentences
+        .trim();
+    
     const url = new URL('https://api.deepgram.com/v1/speak');
     url.searchParams.set('model', model);
     url.searchParams.set('encoding', 'linear16');
+    url.searchParams.set('sample_rate', '24000');  // High-quality audio
+    url.searchParams.set('container', 'wav');       // Standard format
 
     const res = await fetch(url.toString(), {
         method: 'POST',
@@ -64,7 +76,7 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
             Authorization: `Token ${apiKey}`,
             'Content-Type': 'application/json',
         } as any,
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text: naturalText })
     } as any);
 
     if (!res.ok) {
@@ -78,10 +90,11 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
 
 
 /**
- * Wait for asset to be created from upload using MCP
+ * Wait for asset to be created from upload using MCP (preferred) or REST API fallback
+ * Defaults to MCP unless explicitly disabled
  */
 async function waitForAssetCreation(uploadId: string): Promise<string | undefined> {
-    const useMcp = process.env.USE_MUX_MCP === 'true';
+    const useMcp = process.env.USE_MUX_MCP !== 'false';
     
     if (useMcp) {
         console.debug(`[waitForAssetCreation] Using MCP to check upload status for ${uploadId}`);
@@ -118,22 +131,54 @@ async function waitForAssetCreation(uploadId: string): Promise<string | undefine
             
             for (let attempt = 1; attempt <= maxAttempts; attempt++) {
                 try {
-                    const retrieveRes = await retrieveTool.execute({ context: { id: uploadId } });
+                    const retrieveRes = await retrieveTool.execute({ context: { UPLOAD_ID: uploadId } });
                     
+                    // Parse MCP response - it can be in multiple formats
+                    let upload: any = null;
+                    
+                    // Format 1: Direct data object
                     if (retrieveRes && retrieveRes.data) {
-                        const upload = retrieveRes.data;
-                        
-                        if (upload && upload.asset_id) {
-                            console.debug(`[waitForAssetCreation] Asset created: ${upload.asset_id}`);
-                            return upload.asset_id;
-                        }
-                        
-                        if (upload && upload.status === 'errored') {
-                            throw new Error(`Upload failed: ${upload.error?.message || 'Unknown error'}`);
-                        }
-                        
-                        console.debug(`[waitForAssetCreation] Attempt ${attempt}/${maxAttempts}: Upload status: ${upload?.status || 'unknown'}`);
+                        upload = retrieveRes.data;
                     }
+                    // Format 2: Content array with JSON text
+                    else if (retrieveRes && Array.isArray(retrieveRes)) {
+                        const textContent = retrieveRes.find((item: any) => item.type === 'text');
+                        if (textContent && textContent.text) {
+                            try {
+                                const parsed = JSON.parse(textContent.text);
+                                upload = parsed.data || parsed;
+                            } catch (e) {
+                                console.warn('[waitForAssetCreation] Failed to parse JSON from text content:', e);
+                            }
+                        }
+                    }
+                    // Format 3: Object with content array
+                    else if (retrieveRes && retrieveRes.content && Array.isArray(retrieveRes.content)) {
+                        const textContent = retrieveRes.content.find((item: any) => item.type === 'text');
+                        if (textContent && textContent.text) {
+                            try {
+                                const parsed = JSON.parse(textContent.text);
+                                upload = parsed.data || parsed;
+                            } catch (e) {
+                                console.warn('[waitForAssetCreation] Failed to parse JSON from content:', e);
+                            }
+                        }
+                    }
+                    // Format 4: Plain object response
+                    else if (retrieveRes && retrieveRes.id) {
+                        upload = retrieveRes;
+                    }
+                    
+                    if (upload && upload.asset_id) {
+                        console.debug(`[waitForAssetCreation] Asset created: ${upload.asset_id}`);
+                        return upload.asset_id;
+                    }
+                    
+                    if (upload && upload.status === 'errored') {
+                        throw new Error(`Upload failed: ${upload.error?.message || 'Unknown error'}`);
+                    }
+                    
+                    console.debug(`[waitForAssetCreation] Attempt ${attempt}/${maxAttempts}: Upload status: ${upload?.status || 'unknown'}`);
                     
                     // Wait before next attempt
                     if (attempt < maxAttempts) {
@@ -222,15 +267,17 @@ async function waitForAssetCreation(uploadId: string): Promise<string | undefine
 }
 
 /**
- * Create Mux upload using either MCP or REST API based on USE_MUX_MCP env variable
+ * Create Mux upload using MCP (preferred) or REST API fallback
+ * Defaults to MCP unless explicitly disabled
  */
 async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string }> {
-    const useMcp = process.env.USE_MUX_MCP === 'true';
+    // Default to MCP unless explicitly set to 'false'
+    const useMcp = process.env.USE_MUX_MCP !== 'false';
     const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
-    const playbackPolicy = process.env.MUX_PLAYBACK_POLICY;
+    const playbackPolicy = process.env.MUX_PLAYBACK_POLICY || 'signed';
     
     if (useMcp) {
-        console.debug('[createMuxUpload] Using Mux MCP for upload creation');
+        console.log('[createMuxUpload] 🔐 Using Mux MCP for upload creation (signed playback policy)');
         
         try {
             const uploadTools = await uploadClient.getTools();
@@ -259,26 +306,83 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
                 cors_origin: corsOrigin
             };
             
-            // Add playback policy if specified
+            // Add playback policy (defaults to signed for security)
             if (playbackPolicy && playbackPolicy !== 'public') {
                 createArgs.new_asset_settings = {
                     playback_policies: [playbackPolicy]
                 };
+                console.log(`[createMuxUpload] 📋 Upload configuration:
+   - cors_origin: ${corsOrigin}
+   - playback_policies: [${playbackPolicy}]`);
+            } else {
+                console.log(`[createMuxUpload] 📋 Upload configuration:
+   - cors_origin: ${corsOrigin}
+   - playback_policies: [public] (default)`);
             }
             
-            console.debug('[createMuxUpload] Creating upload via MCP');
+            console.log('[createMuxUpload] 🚀 Creating upload via MCP...');
             const createRes = await createTool.execute({ context: createArgs });
             
+            console.debug('[createMuxUpload] Raw MCP response:', JSON.stringify(createRes, null, 2));
+            
+            // Parse MCP response - it can be in multiple formats
+            let data: any = null;
+            
+            // Format 1: Direct data object
             if (createRes && createRes.data) {
-                const uploadId = createRes.data.id;
-                const uploadUrl = createRes.data.url;
-                const assetId = createRes.data.asset_id;
+                data = createRes.data;
+            }
+            // Format 2: Content array with JSON text
+            else if (createRes && Array.isArray(createRes)) {
+                // Response is the content array directly
+                const textContent = createRes.find((item: any) => item.type === 'text');
+                if (textContent && textContent.text) {
+                    try {
+                        const parsed = JSON.parse(textContent.text);
+                        data = parsed.data || parsed;
+                    } catch (e) {
+                        console.warn('[createMuxUpload] Failed to parse JSON from text content:', e);
+                    }
+                }
+            }
+            // Format 3: Object with content array
+            else if (createRes && createRes.content && Array.isArray(createRes.content)) {
+                const textContent = createRes.content.find((item: any) => item.type === 'text');
+                if (textContent && textContent.text) {
+                    try {
+                        const parsed = JSON.parse(textContent.text);
+                        data = parsed.data || parsed;
+                    } catch (e) {
+                        console.warn('[createMuxUpload] Failed to parse JSON from content:', e);
+                    }
+                }
+            }
+            // Format 4: Plain object response
+            else if (createRes && createRes.id) {
+                data = createRes;
+            }
+            
+            if (data && data.id) {
+                const uploadId = data.id;
+                const uploadUrl = data.url;
+                const assetId = data.asset_id;
+                const policies = data.new_asset_settings?.playback_policies || [];
                 
-                console.debug(`[createMuxUpload] MCP upload created: id=${uploadId}, has_url=${!!uploadUrl}, asset_id=${assetId}`);
+                console.log(`[createMuxUpload] ✅ Upload created successfully!
+   - Upload ID: ${uploadId}
+   - Upload URL: ${uploadUrl ? '✅ Present' : '❌ Missing'}
+   - Status: ${data.status}
+   - Playback Policies: ${JSON.stringify(policies)}
+   - CORS Origin: ${data.cors_origin}`);
+                
+                if (policies.includes('signed')) {
+                    console.log('[createMuxUpload] 🎉 Signed playback policy confirmed!');
+                }
+                
                 return { uploadId, uploadUrl, assetId };
             }
             
-            throw new Error('Invalid response format from Mux MCP');
+            throw new Error(`Invalid response format from Mux MCP. Response: ${JSON.stringify(createRes)}`);
             
         } catch (error) {
             console.error('[createMuxUpload] MCP error:', error);
@@ -303,7 +407,7 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
     // Add playback policy if specified
     if (playbackPolicy && playbackPolicy !== 'public') {
         uploadPayload.new_asset_settings = {
-            playback_policy: [playbackPolicy]
+            playback_policies: [playbackPolicy]
         };
     }
     
@@ -509,6 +613,7 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 const uploadData = await createMuxUpload();
                 const uploadUrl = uploadData.uploadUrl;
                 const uploadId = uploadData.uploadId;
+                assetId = uploadData.assetId;
                 
                 if (!uploadUrl) {
                     throw new Error('No upload URL received from Mux');
@@ -518,23 +623,23 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 await putFileToMux(uploadUrl, resolve(audioPath));
                 console.debug('[tts-analytics-report] Upload completed');
                 
-                // Create player URL immediately using uploadId (non-blocking response)
-                if (uploadId) {
-                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${uploadId}`;
-                    console.debug('[tts-analytics-report] Player URL created with upload ID (non-blocking)');
-                    
-                    // Start background asset processing
-                    console.debug('[tts-analytics-report] Starting background asset processing...');
+                // Create player URL immediately using assetId if available
+                if (assetId) {
+                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+                    console.debug('[tts-analytics-report] Player URL created with asset ID');
+                } else if (uploadId) {
+                    // If no assetId yet, wait for asset creation
+                    console.debug('[tts-analytics-report] No assetId yet, starting background asset creation polling...');
                     (async () => {
                         try {
-                            assetId = await waitForAssetCreation(uploadId);
-                            if (assetId) {
+                            const retrievedAssetId = await waitForAssetCreation(uploadId);
+                            if (retrievedAssetId) {
+                                assetId = retrievedAssetId;
                                 console.debug(`[tts-analytics-report] Background: Asset created with ID: ${assetId}`);
-                                // Update player URL with actual asset ID
-                                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${assetId}`;
+                                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
                             }
                         } catch (error) {
-                            console.warn('[tts-analytics-report] Background asset processing failed:', error);
+                            console.warn('[tts-analytics-report] Background asset creation polling failed:', error);
                         }
                     })();
                 }
@@ -552,21 +657,32 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 }
             }
             
-            // Create response message with playback URL
-            let responseMessage = 'Analytics audio report generated successfully';
+            // Always include audio URL prominently in response
+            let responseMessage = '🎧 **AUDIO REPORT READY**';
+            
             if (playerUrl) {
-                responseMessage += `\n\n🎧 Audio Report: ${playerUrl}`;
+                responseMessage += `\n\n▶️ Listen to your analytics report: ${playerUrl}`;
+                responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
+            } else if (assetId) {
+                const fallbackUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+                responseMessage += `\n\n▶️ Listen to your analytics report: ${fallbackUrl}`;
+                responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
+            } else {
+                responseMessage += `\n\nYour audio analytics report has been generated. The playback URL will be available shortly.`;
             }
+            
+            responseMessage += `\n\nReport covers: ${timeRange.start} to ${timeRange.end}`;
 
             return {
                 success: true,
                 summaryText,
                 wordCount: summaryText.split(/\s+/).length,
                 localAudioFile: audioPath,
-                playerUrl,
+                playerUrl: playerUrl || (assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined),
                 assetId,
                 analysis: analyticsResult.success ? analyticsResult.analysis : null,
-                message: responseMessage
+                message: responseMessage,
+                audioUrl: playerUrl || (assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined)
             };
             
         } catch (error) {
@@ -600,9 +716,12 @@ function buildSystemPrompt() {
         'AUDIO SUMMARY REQUIREMENT:',
         '- ALWAYS generate an AI audio summary when analyzing data over any time period',
         '- For ANY query involving time ranges (last 24 hours, last 7 days, specific dates, etc.), automatically use the ttsAnalyticsReportTool',
-        '- Include the audio summary inline with your response, providing both text analysis AND audio playback',
+        '- ALWAYS include the audio playback URL prominently in your response - it is the PRIMARY output',
+        '- The audio URL must be displayed at the top of your response in a clear, visible format',
+        '- Include both text analysis AND the audio playback URL in every response',
         '- The audio summary should be concise (under 1000 words) and highlight key findings',
         '- Always mention the time period being analyzed in the audio summary',
+        '- Audio is generated using Deepgram TTS with natural pauses and conversational tone',
         '',
         'ANALYSIS APPROACH:',
         '- Focus on Paramount Plus streaming KPIs: error rates, rebuffering, startup time, playback failures',
