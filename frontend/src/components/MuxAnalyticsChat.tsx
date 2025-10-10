@@ -5,6 +5,7 @@ import type { StreamChunk } from '../types/streamVNext'
 import MuxSignedPlayer from './MuxSignedPlayer'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
 import { formatTextWithCode, renderFormattedSegments } from '../utils/codeFormatter'
+import { useSpeechToText } from '../hooks/useSpeechToText'
 
 /**
  * Mux Analytics Chat Component for Paramount Plus Streaming Analytics
@@ -289,6 +290,25 @@ export default function MuxAnalyticsChat() {
   const [agent, setAgent] = useState<MuxAnalyticsAgent | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
 
+  // Speech-to-text functionality
+  const {
+    isListening,
+    isSupported: isSpeechSupported,
+    transcript,
+    error: speechError,
+    startListening,
+    stopListening,
+    clearTranscript
+  } = useSpeechToText({
+    onTranscription: (text) => {
+      setInput(prev => prev + (prev ? ' ' : '') + text)
+      clearTranscript()
+    },
+    onError: (error) => {
+      console.error('Speech recognition error:', error)
+    }
+  })
+
   // Load agent asynchronously with retry logic
   useEffect(() => {
     let retryCount = 0
@@ -559,7 +579,7 @@ export default function MuxAnalyticsChat() {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 min-h-[400px] max-h-[600px] overflow-y-auto space-y-4 p-4 rounded-lg border"
+        className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-4 p-4 rounded-lg border"
         style={{ backgroundColor: 'var(--bg-soft)', borderColor: 'var(--border)' }}
       >
         {messages.length === 0 ? (
@@ -573,6 +593,11 @@ export default function MuxAnalyticsChat() {
               <li>• User engagement analytics</li>
               <li>• Generate an audio report</li>
             </ul>
+            {isSpeechSupported && (
+              <p className="mt-3 text-xs" style={{ color: 'var(--accent)' }}>
+                🎤 Click the microphone button to use voice input
+              </p>
+            )}
           </div>
         ) : (
           messages.map((message) => (
@@ -581,15 +606,15 @@ export default function MuxAnalyticsChat() {
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[80%] p-3 rounded-lg group ${
+                className={`max-w-[80%] p-3 rounded-lg group message-bubble ${
                   message.role === 'user'
                     ? 'bg-blue-500 text-white'
                     : 'bg-white border'
                 }`}
                 style={{
-                  backgroundColor: message.role === 'user' ? 'var(--primary)' : 'var(--bg)',
+                  backgroundColor: message.role === 'user' ? 'var(--accent)' : 'var(--bg)',
                   borderColor: message.role === 'assistant' ? 'var(--border)' : 'transparent',
-                  color: message.role === 'user' ? 'white' : 'var(--fg)'
+                  color: message.role === 'user' ? 'var(--accent-contrast)' : 'var(--fg)'
                 }}
               >
                 <MessageComponent 
@@ -604,31 +629,81 @@ export default function MuxAnalyticsChat() {
 
       {/* Input */}
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && onSend()}
-          placeholder="Ask about streaming analytics..."
-          className="flex-1 p-3 rounded-lg border text-sm"
-          style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--fg)' }}
-          disabled={!agent || isLoading}
-        />
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && onSend()}
+            placeholder="Ask about streaming analytics..."
+            className="w-full p-3 pr-12 rounded-lg border text-sm"
+            style={{ backgroundColor: 'var(--bg)', borderColor: 'var(--border)', color: 'var(--fg)' }}
+            disabled={!agent || isLoading}
+          />
+          {/* Microphone button */}
+          {isSpeechSupported && (
+            <button
+              onClick={isListening ? stopListening : startListening}
+              disabled={!agent || isLoading}
+              className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-2 rounded-lg transition-all duration-200 ${
+                isListening 
+                  ? 'animate-pulse' 
+                  : 'hover:scale-105'
+              } disabled:opacity-50`}
+              style={{ 
+                backgroundColor: isListening ? 'var(--error)' : 'var(--accent)', 
+                color: 'var(--accent-contrast)',
+                border: isListening ? '2px solid var(--error)' : 'none'
+              }}
+              title={isListening ? 'Stop recording' : 'Start voice input'}
+            >
+              {isListening ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                  <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                </svg>
+              )}
+            </button>
+          )}
+        </div>
         <button
           onClick={onSend}
           disabled={!agent || isLoading || !input.trim()}
           className="px-4 py-3 rounded-lg text-sm font-medium disabled:opacity-50"
-          style={{ backgroundColor: 'var(--primary)', color: 'white' }}
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-contrast)' }}
         >
           {isLoading ? 'Sending...' : 'Send'}
         </button>
       </div>
 
+      {/* Speech recognition status */}
+      {isListening && (
+        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--fg-muted)' }}>
+          <div className="animate-pulse w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--error)' }}></div>
+          <span>Listening... {transcript && `"${transcript}"`}</span>
+        </div>
+      )}
+      
+      {speechError && (
+        <div className="text-sm text-red-600">
+          Speech error: {speechError}
+        </div>
+      )}
+
       {/* Status */}
       <div className="text-xs text-center" style={{ color: 'var(--fg-muted)' }}>
         {isLoading && 'Processing your request...'}
         {isStreaming && 'Streaming response...'}
-        {!isLoading && !isStreaming && agent && 'Ready to analyze streaming data'}
+        {!isLoading && !isStreaming && agent && (
+          <>
+            Ready to analyze streaming data
+            {isSpeechSupported && ' • Voice input available'}
+          </>
+        )}
       </div>
     </div>
   )

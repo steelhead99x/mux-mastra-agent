@@ -30,6 +30,7 @@ import { Mastra } from '@mastra/core';
 import express from 'express';
 import cors from 'cors';
 import { muxAnalyticsAgent } from './agents/mux-analytics-agent.js';
+import speechToTextRouter from './routes/speechToText.js';
 import { resolve } from 'path';
 
 // Set telemetry flag to suppress warnings when not using Mastra server environment
@@ -87,6 +88,9 @@ if (!isPlaygroundMode) {
   // Handle preflight quickly (Express 5 compat with path-to-regexp v6)
   app.options(/.*/, cors());
   app.use(express.json());
+  
+  // Speech-to-text API routes
+  app.use('/api', speechToTextRouter);
   
   // Enhanced health check with MCP status
   app.get('/health', async (_req: any, res: any) => {

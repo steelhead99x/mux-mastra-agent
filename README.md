@@ -12,6 +12,7 @@ This application gives you two helpful AI assistants:
 - **Creates reports**: Generates spoken summaries of your video analytics
 - **Shows trends**: Creates charts and graphs of your video performance
 - **Remembers conversations**: Keeps track of what you've discussed before
+- **🎤 Voice input**: Speak your questions using the microphone button for hands-free interaction
 
 ### 🎬 Media Manager Assistant  
 - **Uploads videos**: Helps you add videos to your Mux account
@@ -47,12 +48,39 @@ npm run install:all
    ANTHROPIC_API_KEY=your_key_here
    MUX_TOKEN_ID=your_token_id_here
    MUX_TOKEN_SECRET=your_token_secret_here
+   DEEPGRAM_API_KEY=your_deepgram_key_here  # Optional: for voice input
    ```
 
 ### Step 3: Start the Application
 ```bash
 npm run dev
 ```
+
+## 🎤 Voice Input Feature
+
+The application now supports voice input for hands-free interaction:
+
+### How to Use Voice Input
+1. **Click the microphone button** in the chat input field
+2. **Allow microphone access** when prompted by your browser
+3. **Speak your question** clearly
+4. **Watch your words appear** in the input field automatically
+5. **Click Send** or press Enter to submit
+
+### Voice Input Features
+- **Real-time transcription**: See your words appear as you speak
+- **Browser compatibility**: Works with Chrome, Edge, Safari, and Firefox
+- **Fallback support**: Uses Deepgram API if browser speech recognition isn't available
+- **Visual feedback**: Microphone button changes color and pulses when listening
+- **Error handling**: Clear error messages if microphone access is denied
+
+### Getting Your Deepgram API Key (Optional)
+For enhanced voice recognition, get a free API key from [Deepgram Console](https://console.deepgram.com/):
+1. Sign up for a free account
+2. Create a new API key
+3. Add it to your `.env` file as `DEEPGRAM_API_KEY=your_key_here`
+
+**Note**: Voice input works without Deepgram using your browser's built-in speech recognition, but Deepgram provides better accuracy and reliability.
 
 Once started, you can access:
 - **Main application**: http://localhost:3000

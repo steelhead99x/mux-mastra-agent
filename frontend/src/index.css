@@ -8,7 +8,7 @@
   --bg: #f8fafc; /* Paramount Plus background */
   --bg-soft: #ffffff;
   --bg-elev: #ffffffcc; /* translucent for glassy cards */
-  --fg: #1e293b; /* Paramount Plus dark text */
+  --fg: #000000; /* True black for better readability in light mode */
   --fg-muted: #475569; /* Paramount Plus muted text */
   --fg-subtle: #64748b; /* Paramount Plus subtle text */
   --border: #e2e8f0; /* Paramount Plus border */
@@ -120,6 +120,26 @@ body {
   hyphens: auto;
   max-width: 100%;
   contain: content; /* CSS containment for better performance */
+  white-space: pre-wrap; /* Preserve whitespace and line breaks */
+  color: var(--fg) !important; /* Force true black text in light mode */
+}
+
+/* Override prose text colors to use our theme variables */
+.prose {
+  color: var(--fg) !important;
+}
+
+.prose p {
+  color: var(--fg) !important;
+}
+
+.prose strong {
+  color: var(--fg) !important;
+}
+
+.prose code {
+  color: var(--fg) !important;
+  background-color: var(--bg-elev);
 }
 
 .chat-message p {
@@ -185,6 +205,24 @@ body {
   display: flex;
   flex-direction: column;
   contain: layout; /* Isolate layout calculations */
+}
+
+/* Chat messages container improvements */
+.chat-messages-container {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+  /* Ensure proper scrolling on all devices */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Message bubble improvements */
+.message-bubble {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 100%;
+  white-space: pre-wrap;
 }
 
 /* Optimized thinking animations - GPU accelerated */

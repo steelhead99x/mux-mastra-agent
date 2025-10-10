@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
+    "@deepgram/sdk": "^4.11.2",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@mastra/chroma": "^0.11.13",
     "@mastra/core": "^0.20.2",
@@ -44,6 +45,7 @@
     "@modelcontextprotocol/sdk": "^1.19.1",
     "@mux/mcp": "^12.8.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.0.0",
     "ai": "^5.0.0",
     "canvas": "^3.2.0",
     "chart.js": "^4.5.0",
@@ -54,6 +56,7 @@
     "fluent-ffmpeg": "^2.1.3",
     "jsonwebtoken": "^9.0.2",
     "mastra": "^0.15.1",
+    "multer": "^2.0.2",
     "tsx": "^4.19.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
