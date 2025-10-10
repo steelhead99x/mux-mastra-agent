@@ -693,6 +693,17 @@ export const muxErrorsTool = createTool({
                 }
             }
             
+            // Calculate total errors FIRST - we'll need this for proportional distribution
+            let totalErrors = errorsData.total_row_count || 0;
+            
+            // If total_row_count is null/0 but we have error data, calculate from the counts
+            if (!totalErrors && errorsData.data && Array.isArray(errorsData.data) && errorsData.data.length > 0) {
+                totalErrors = errorsData.data.reduce((sum: number, error: any) => {
+                    return sum + (error.count || 0);
+                }, 0);
+                console.log(`[mux-errors] Calculated totalErrors from individual counts: ${totalErrors}`);
+            }
+            
             // Try to get platform breakdown with actual error counts
             // Mux API errors endpoint doesn't include dimension data, so we need to use breakdown metrics
             // We'll try multiple error-related metrics to get actual counts
@@ -801,16 +812,7 @@ export const muxErrorsTool = createTool({
                 throw new Error('Unable to retrieve error data from Mux API. Error endpoints may not be available or your account may not have error data for the requested timeframe.');
             }
             
-            // Calculate total errors - use total_row_count if available, otherwise sum up individual error counts
-            let totalErrors = errorsData.total_row_count || 0;
-            
-            // If total_row_count is null/0 but we have error data, calculate from the counts
-            if (!totalErrors && errorsData.data && Array.isArray(errorsData.data) && errorsData.data.length > 0) {
-                totalErrors = errorsData.data.reduce((sum: number, error: any) => {
-                    return sum + (error.count || 0);
-                }, 0);
-                console.log(`[mux-errors] Calculated totalErrors from individual counts: ${totalErrors}`);
-            }
+            // totalErrors already calculated above (before platform breakdown logic)
             
             return {
                 success: true,
