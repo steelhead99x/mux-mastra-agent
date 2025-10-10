@@ -32,6 +32,7 @@ ln -sf "$ROOT_ENV" "$OUTPUT_ENV"
 # Verify the symlink works
 if [ -L "$OUTPUT_ENV" ] && [ -f "$OUTPUT_ENV" ]; then
     echo "[env-symlink] ✅ Environment configured for Mastra"
+    echo "[env-symlink] Symlink: $OUTPUT_ENV -> $ROOT_ENV"
 else
     echo "[env-symlink] ❌ Failed to create symlink"
     exit 1

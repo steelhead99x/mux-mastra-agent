@@ -29,8 +29,9 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
 }
 
 // Mux API valid timeframe constraints
-const MUX_API_VALID_START = 1751241600; // Jun 30 2025
-const MUX_API_VALID_END = 1760100000;   // Oct 10 2025 (extended to include recent data)
+// Based on actual Mux API response: valid timeframe [Jul 2 2025, Oct 10 2025]
+const MUX_API_VALID_START = 1751414400; // Jul 2 2025 00:00:00 UTC
+const MUX_API_VALID_END = 1760068051;   // Oct 10 2025 03:47:31 UTC (from API response)
 
 /**
  * Get current time as Unix timestamp
@@ -277,34 +278,78 @@ export const muxAnalyticsTool = createTool({
             // Get MCP tools
             const tools = await muxDataMcpClient.getTools();
             
-            // Use the get_overall_values tool (MCP creates this from get_overall_values_data_metrics endpoint)
+            // Try multiple approaches to get real analytics data
+            let metricsData: any = null;
+            
+            // Approach 1: Try get_overall_values tool
             if (tools['get_overall_values']) {
-                const params: any = {
-                    METRIC_ID: 'video_startup_failure_percentage', // Required parameter for Mux Data API
-                    timeframe: [start, end],
-                };
-                
-                if (filters && filters.length > 0) {
-                    params.filters = filters;
+                try {
+                    const params: any = {
+                        METRIC_ID: 'video_startup_failure_percentage', // Required parameter for Mux Data API
+                        timeframe: [start, end],
+                    };
+                    
+                    if (filters && filters.length > 0) {
+                        params.filters = filters;
+                    }
+                    
+                    metricsData = await tools['get_overall_values'].execute({ context: params });
+                    console.log('[mux-analytics] Got data via get_overall_values:', metricsData);
+                } catch (error) {
+                    console.warn('[mux-analytics] get_overall_values failed:', error);
                 }
-                
-                const metricsData = await tools['get_overall_values'].execute({ context: params });
-                
-                // Analyze the data
-                const analysis = analyzeMetrics(metricsData.data || metricsData);
-                
-                return {
-                    success: true,
-                    timeRange: {
-                        start: new Date(start * 1000).toISOString(),
-                        end: new Date(end * 1000).toISOString(),
-                    },
-                    metrics: metricsData.data || metricsData,
-                    analysis,
-                };
-            } else {
-                throw new Error('get_overall_values tool not available in MCP');
             }
+            
+            // Approach 2: Try invoke_api_endpoint with different metrics
+            if (!metricsData && tools['invoke_api_endpoint']) {
+                try {
+                    const metricsToTry = [
+                        'video_startup_failure_percentage',
+                        'video_startup_time',
+                        'video_rebuffer_percentage',
+                        'video_error_percentage'
+                    ];
+                    
+                    for (const metricId of metricsToTry) {
+                        try {
+                            const params = {
+                                endpoint_name: 'get_overall_values_data_metrics',
+                                args: {
+                                    METRIC_ID: metricId,
+                                    timeframe: [start, end],
+                                    ...(filters && filters.length > 0 && { filters })
+                                }
+                            };
+                            
+                            metricsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                            console.log(`[mux-analytics] Got data via invoke_api_endpoint (${metricId}):`, metricsData);
+                            break; // Success, stop trying other metrics
+                        } catch (metricError) {
+                            console.warn(`[mux-analytics] Metric ${metricId} failed:`, metricError);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[mux-analytics] invoke_api_endpoint approach failed:', error);
+                }
+            }
+            
+            // If we still don't have data, return failure instead of mock data
+            if (!metricsData || !metricsData.data) {
+                throw new Error('Unable to retrieve real analytics data from Mux API. Please check your Mux account has data for the requested timeframe.');
+            }
+            
+            // Analyze the real data
+            const analysis = analyzeMetrics(metricsData.data || metricsData);
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                metrics: metricsData.data || metricsData,
+                analysis,
+            };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);
@@ -447,35 +492,78 @@ export const muxVideoViewsTool = createTool({
             // Get MCP tools
             const tools = await muxDataMcpClient.getTools();
             
-            // Try different possible tool names for video views
+            // Try multiple approaches to get video views data
+            let viewsData: any = null;
+            
+            // Approach 1: Look for specific video views tool
             const videoViewsToolName = Object.keys(tools).find(name => 
                 name.includes('video') && name.includes('view')
             );
             
             if (videoViewsToolName) {
-                const params: any = {
-                    timeframe: [start, end],
-                    limit: limit || 25,
-                };
-                
-                if (filters && filters.length > 0) {
-                    params.filters = filters;
+                try {
+                    const params: any = {
+                        timeframe: [start, end],
+                        limit: limit || 25,
+                    };
+                    
+                    if (filters && filters.length > 0) {
+                        params.filters = filters;
+                    }
+                    
+                    viewsData = await tools[videoViewsToolName].execute({ context: params });
+                    console.log('[mux-video-views] Got data via video views tool:', viewsData);
+                } catch (error) {
+                    console.warn('[mux-video-views] Video views tool failed:', error);
                 }
-                
-                const viewsData = await tools[videoViewsToolName].execute({ context: params });
-                
-                return {
-                    success: true,
-                    timeRange: {
-                        start: new Date(start * 1000).toISOString(),
-                        end: new Date(end * 1000).toISOString(),
-                    },
-                    views: viewsData.data || [],
-                    totalViews: viewsData.data?.length || 0,
-                };
-            } else {
-                throw new Error('No video views tool available in MCP');
             }
+            
+            // Approach 2: Try invoke_api_endpoint for video views
+            if (!viewsData && tools['invoke_api_endpoint']) {
+                try {
+                    const endpointsToTry = [
+                        'list_data_video_views',
+                        'get_data_video_views',
+                        'list_video_views'
+                    ];
+                    
+                    for (const endpoint of endpointsToTry) {
+                        try {
+                            const params = {
+                                endpoint_name: endpoint,
+                                args: {
+                                    timeframe: [start, end],
+                                    limit: limit || 25,
+                                    ...(filters && filters.length > 0 && { filters })
+                                }
+                            };
+                            
+                            viewsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                            console.log(`[mux-video-views] Got data via invoke_api_endpoint (${endpoint}):`, viewsData);
+                            break; // Success, stop trying other endpoints
+                        } catch (endpointError) {
+                            console.warn(`[mux-video-views] Endpoint ${endpoint} failed:`, endpointError);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[mux-video-views] invoke_api_endpoint approach failed:', error);
+                }
+            }
+            
+            // If we still don't have data, return failure instead of mock data
+            if (!viewsData) {
+                throw new Error('Unable to retrieve video views data from Mux API. Video views endpoint may not be available or your account may not have view data for the requested timeframe.');
+            }
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                views: viewsData.data || [],
+                totalViews: viewsData.data?.length || 0,
+            };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);
@@ -548,51 +636,94 @@ export const muxErrorsTool = createTool({
             // Get MCP tools
             const tools = await muxDataMcpClient.getTools();
             
-            // Use the list_errors tool (MCP creates this from list_data_errors endpoint)
+            // Try multiple approaches to get error data
+            let errorsData: any = null;
+            let osBreakdown: any[] = [];
+            
+            // Approach 1: Try list_errors tool
             if (tools['list_errors']) {
-                const params: any = {
-                    timeframe: [start, end],
-                };
-                
-                if (filters && filters.length > 0) {
-                    params.filters = filters;
-                }
-                
-                const errorsData = await tools['list_errors'].execute({ context: params });
-                
-                // Also get breakdown by operating system if available
-                let osBreakdown = [];
-                if (tools['list_breakdown_values']) {
-                    try {
-                        const breakdownData = await tools['list_breakdown_values'].execute({ 
-                            context: {
-                                METRIC_ID: 'video_startup_failure_percentage', // Required parameter
-                                timeframe: [start, end],
-                                group_by: 'operating_system',
-                                order_by: 'negative_impact',
-                                order_direction: 'desc',
-                                limit: 20
-                            }
-                        });
-                        osBreakdown = breakdownData.data || [];
-                    } catch (breakdownError) {
-                        console.warn('Could not fetch platform breakdown:', breakdownError);
+                try {
+                    const params: any = {
+                        timeframe: [start, end],
+                    };
+                    
+                    if (filters && filters.length > 0) {
+                        params.filters = filters;
                     }
+                    
+                    errorsData = await tools['list_errors'].execute({ context: params });
+                    console.log('[mux-errors] Got data via list_errors:', errorsData);
+                } catch (error) {
+                    console.warn('[mux-errors] list_errors failed:', error);
                 }
-                
-                return {
-                    success: true,
-                    timeRange: {
-                        start: new Date(start * 1000).toISOString(),
-                        end: new Date(end * 1000).toISOString(),
-                    },
-                    errors: errorsData.data || [],
-                    totalErrors: errorsData.total_row_count || 0,
-                    platformBreakdown: osBreakdown,
-                };
-            } else {
-                throw new Error('list_errors tool not available in MCP');
             }
+            
+            // Approach 2: Try invoke_api_endpoint for errors
+            if (!errorsData && tools['invoke_api_endpoint']) {
+                try {
+                    const endpointsToTry = [
+                        'list_data_errors',
+                        'get_data_errors',
+                        'list_errors'
+                    ];
+                    
+                    for (const endpoint of endpointsToTry) {
+                        try {
+                            const params = {
+                                endpoint_name: endpoint,
+                                args: {
+                                    timeframe: [start, end],
+                                    ...(filters && filters.length > 0 && { filters })
+                                }
+                            };
+                            
+                            errorsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                            console.log(`[mux-errors] Got data via invoke_api_endpoint (${endpoint}):`, errorsData);
+                            break; // Success, stop trying other endpoints
+                        } catch (endpointError) {
+                            console.warn(`[mux-errors] Endpoint ${endpoint} failed:`, endpointError);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[mux-errors] invoke_api_endpoint approach failed:', error);
+                }
+            }
+            
+            // Try to get platform breakdown if we have error data
+            if (errorsData && tools['list_breakdown_values']) {
+                try {
+                    const breakdownData = await tools['list_breakdown_values'].execute({ 
+                        context: {
+                            METRIC_ID: 'video_startup_failure_percentage', // Required parameter
+                            timeframe: [start, end],
+                            group_by: 'operating_system',
+                            order_by: 'negative_impact',
+                            order_direction: 'desc',
+                            limit: 20
+                        }
+                    });
+                    osBreakdown = breakdownData.data || [];
+                    console.log('[mux-errors] Got platform breakdown:', osBreakdown);
+                } catch (breakdownError) {
+                    console.warn('[mux-errors] Could not fetch platform breakdown:', breakdownError);
+                }
+            }
+            
+            // If we still don't have data, return failure instead of mock data
+            if (!errorsData) {
+                throw new Error('Unable to retrieve error data from Mux API. Error endpoints may not be available or your account may not have error data for the requested timeframe.');
+            }
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                errors: errorsData.data || [],
+                totalErrors: errorsData.total_row_count || 0,
+                platformBreakdown: osBreakdown,
+            };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             const sanitizedError = sanitizeApiKey(errorMessage);

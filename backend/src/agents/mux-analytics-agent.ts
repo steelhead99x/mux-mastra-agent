@@ -578,7 +578,7 @@ const ttsAnalyticsReportTool = createTool({
             
             // Generate summary text based on focus area
             if (actualFocusArea === 'errors' && errorsResult?.success) {
-                // Error-focused report
+                // Error-focused report using REAL data only
                 const { errors, totalErrors, platformBreakdown } = errorsResult;
                 
                 summaryText = `Error Analysis Report for Paramount Plus Streaming:
@@ -731,31 +731,8 @@ Total Error Events: ${totalErrors}
                 summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
                 
             } else {
-                // Fallback report when no data is available
-                console.log('[tts-analytics-report] No data available, generating fallback report');
-                
-                summaryText = `Streaming Analytics Audio Report:
-
-Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
-
-Status: Analytics data is currently unavailable, but your Mux account is configured and ready for monitoring.
-
-Platform Error Monitoring:
-- Error monitoring is active and ready to detect issues
-- No critical errors detected in the monitoring system
-- All streaming infrastructure appears operational
-
-Infrastructure Status:
-- Mux streaming platform is properly configured
-- Analytics collection is enabled and monitoring
-- Ready to capture detailed viewer engagement data
-
-Key Insights:
-1. Mux account is properly configured with valid credentials
-2. Analytics and error monitoring is active and ready
-3. Streaming infrastructure is operational
-
-Recommendation: Continue monitoring your streaming performance. The analytics system is ready to provide detailed insights as your content receives views.`;
+                // No data available - return error instead of fake data
+                throw new Error('Unable to retrieve analytics data from Mux API. Please check your Mux account has data for the requested timeframe and that your API credentials are valid.');
             }
             
             // Optionally include asset information

@@ -1,3 +1,10 @@
+// Load environment variables before Mastra config
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env from the Mastra output directory
+config({ path: resolve('.mastra/output/.env') });
+
 /** @type {import('mastra').MastraConfig} */
 export default {
   srcDir: './src',
