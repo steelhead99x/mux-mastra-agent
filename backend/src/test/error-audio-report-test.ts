@@ -31,10 +31,6 @@ if (existsSync(rootEnvPath)) {
   config();
 }
 
-// Import the TTS tool and related components
-import { muxAnalyticsAgent } from '../agents/mux-analytics-agent.js';
-import { muxErrorsTool } from '../tools/mux-analytics.js';
-
 // Test configuration
 const TEST_TIMEOUT = 120000; // 2 minutes for comprehensive testing
 
