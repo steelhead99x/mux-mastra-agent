@@ -30,7 +30,7 @@ export default function MuxSignedPlayer({
   className?: string
 }) {
   const DEFAULT_ASSET_ID = import.meta.env.VITE_MUX_DEFAULT_ASSET_ID || ''
-  const { updateAnalytics } = useMuxAnalytics()
+  const { updateAnalytics, currentVideo } = useMuxAnalytics()
 
   // Allow URL query param override (?assetid=..., ?assetId=..., ?assetID=..., ?playbackId=..., etc.)
   const assetIdFromQuery = useMemo(() => {
@@ -57,8 +57,9 @@ export default function MuxSignedPlayer({
     }
   }, [])
 
-  const assetId = assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
-  const playbackId = playbackIdProp || playbackID || playbackid || playbackIdFromQuery
+  // Priority: context > props > query params > env > default
+  const assetId = currentVideo.assetId || assetIdProp || assetID || assetid || assetIdFromQuery || import.meta.env.VITE_MUX_ASSET_ID || DEFAULT_ASSET_ID
+  const playbackId = currentVideo.playbackId || playbackIdProp || playbackID || playbackid || playbackIdFromQuery
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://www.streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -71,7 +72,7 @@ export default function MuxSignedPlayer({
     ...(assetId && { assetId }), 
     ...(playbackId && { playbackId }), 
     type 
-  }), [assetId, playbackId, type])
+  }), [assetId, playbackId, type, currentVideo])
   const playerRef = useRef<any>(null)
 
   // Setup global error handler for WritableStream errors

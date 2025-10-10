@@ -2,7 +2,6 @@ import { useCallback, useMemo, useRef, useState, useEffect, memo } from 'react'
 import { mastra, getMuxAnalyticsAgentId, getDisplayHost } from '../lib/mastraClient'
 import { useStreamVNext } from '../hooks/useStreamVNext'
 import type { StreamChunk } from '../types/streamVNext'
-import MuxSignedPlayer from './MuxSignedPlayer'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
 import { formatTextWithCode, renderFormattedSegments } from '../utils/codeFormatter'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -36,6 +35,7 @@ interface MuxAnalyticsAgent {
  * @param isStreaming - Whether the message is currently being streamed
  */
 const MessageComponent = memo(({ message, isStreaming = false }: { message: Message; isStreaming?: boolean }) => {
+  const { setCurrentVideo } = useMuxAnalytics()
   // Function to detect and extract Mux video URLs
   const detectMuxVideo = (content: string) => {
     // More comprehensive pattern that handles various URL formats and spacing issues
@@ -106,6 +106,12 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
       const idToUse = assetId || playbackId
       
       if (idToUse) {
+        // Update the main player with this video
+        setCurrentVideo({
+          assetId: assetId || undefined,
+          playbackId: playbackId || undefined
+        })
+        
         // Remove the video URL from the text content
         const textContent = content.replace(muxVideoUrl, '').trim()
         
@@ -119,61 +125,60 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                 </div>
               </div>
             )}
-            {/* Then render the video player */}
-            <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-              <div className="relative">
-                <MuxSignedPlayer 
-                  assetId={assetId || undefined}
-                  playbackId={playbackId || undefined}
-                  className="w-full max-w-lg mx-auto rounded-lg overflow-hidden"
-                />
-                <div className="mt-2 text-center">
-                  <div className="text-sm" style={{ color: 'var(--fg-muted)' }}>
-                    🎧 Audio player auto-loaded - ready to play
+            {/* Show notification that audio is loaded in the main player */}
+            <div className="mt-3 p-4 rounded-lg border" style={{ 
+              backgroundColor: 'var(--overlay)', 
+              borderColor: 'var(--accent)',
+              borderWidth: '2px'
+            }}>
+              <div className="flex items-start gap-3">
+                <div className="text-2xl">🎧</div>
+                <div className="flex-1">
+                  <div className="font-medium mb-1" style={{ color: 'var(--fg)' }}>
+                    Audio Report Loaded
                   </div>
-                </div>
-              </div>
-              <div className="mt-3 p-3 rounded-lg border" style={{ 
-                backgroundColor: 'var(--overlay)', 
-                borderColor: 'var(--border)' 
-              }}>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>
-                    🎧 Player URL
-                  </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(muxVideoUrl).then(() => {
-                        // Show temporary success feedback
-                        const button = event?.target as HTMLButtonElement;
-                        const originalText = button.textContent;
-                        button.textContent = 'Copied!';
-                        button.style.color = 'var(--success)';
-                        setTimeout(() => {
-                          button.textContent = originalText;
-                          button.style.color = '';
-                        }, 2000);
-                      }).catch(err => {
-                        console.error('Failed to copy URL:', err);
-                      });
-                    }}
-                    className="text-xs px-2 py-1 rounded border transition-colors hover:bg-opacity-80"
-                    style={{ 
-                      backgroundColor: 'var(--accent)', 
-                      borderColor: 'var(--accent)',
-                      color: 'var(--accent-fg)'
-                    }}
-                  >
-                    Copy URL
-                  </button>
-                </div>
-                <div className="text-xs break-all p-2 rounded border"
-                     style={{ 
-                       backgroundColor: 'var(--bg)', 
-                       borderColor: 'var(--border)',
-                       color: 'var(--fg-muted)'
-                     }}>
-                  {muxVideoUrl}
+                  <div className="text-sm mb-2" style={{ color: 'var(--fg-muted)' }}>
+                    Your audio report is now playing in the player on the left. Click play to listen.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(muxVideoUrl).then(() => {
+                          // Show temporary success feedback
+                          const button = event?.target as HTMLButtonElement;
+                          const originalText = button.textContent;
+                          button.textContent = '✓ Copied!';
+                          setTimeout(() => {
+                            button.textContent = originalText;
+                          }, 2000);
+                        }).catch(err => {
+                          console.error('Failed to copy URL:', err);
+                        });
+                      }}
+                      className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
+                      style={{ 
+                        backgroundColor: 'var(--accent)', 
+                        borderColor: 'var(--accent)',
+                        color: 'var(--accent-contrast)'
+                      }}
+                    >
+                      Copy Player URL
+                    </button>
+                    <a 
+                      href={muxVideoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs px-3 py-1.5 rounded border transition-colors hover:bg-opacity-80"
+                      style={{ 
+                        backgroundColor: 'var(--bg)', 
+                        borderColor: 'var(--border)',
+                        color: 'var(--fg)',
+                        textDecoration: 'none'
+                      }}
+                    >
+                      Open in New Tab
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -345,22 +350,30 @@ export default function MuxAnalyticsChat() {
     loadAgent()
   }, [])
 
-  // Auto-scroll to bottom when new messages arrive
-  const scrollToBottom = useCallback(() => {
+  // Auto-scroll to bottom when new messages arrive with smooth behavior
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior
+      })
     }
   }, [])
 
+  // Initial scroll without animation when messages change significantly
   useEffect(() => {
-    scrollToBottom()
-  }, [messages, scrollToBottom])
+    if (messages.length > 0) {
+      scrollToBottom('auto')
+    }
+  }, [messages.length, scrollToBottom])
 
-  // Auto-scroll with debouncing
+  // Smooth scroll during streaming with throttling
   useEffect(() => {
-    const timeoutId = setTimeout(scrollToBottom, 100)
-    return () => clearTimeout(timeoutId)
-  }, [messages, scrollToBottom])
+    if (isStreaming) {
+      const timeoutId = setTimeout(() => scrollToBottom('smooth'), 50)
+      return () => clearTimeout(timeoutId)
+    }
+  }, [streamingContent, isStreaming, scrollToBottom])
 
   /**
    * Handles sending a message to the analytics agent
@@ -579,8 +592,13 @@ export default function MuxAnalyticsChat() {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-4 p-4 rounded-lg border"
-        style={{ backgroundColor: 'var(--bg-soft)', borderColor: 'var(--border)' }}
+        className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-4 p-4 rounded-lg border overflow-y-auto"
+        style={{ 
+          backgroundColor: 'var(--bg-soft)', 
+          borderColor: 'var(--border)',
+          scrollBehavior: 'smooth',
+          overflowAnchor: 'none'
+        }}
       >
         {messages.length === 0 ? (
           <div className="text-center text-sm" style={{ color: 'var(--fg-muted)' }}>

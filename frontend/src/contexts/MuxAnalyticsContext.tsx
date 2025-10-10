@@ -20,18 +20,26 @@ export interface MuxAnalyticsData {
   completionRate: number
 }
 
+export interface CurrentVideo {
+  assetId?: string
+  playbackId?: string
+}
+
 export interface MuxAnalyticsContextType {
   analyticsData: Map<string, MuxAnalyticsData>
   updateAnalytics: (assetId: string, data: Partial<MuxAnalyticsData>) => void
   getAnalyticsForAsset: (assetId: string) => MuxAnalyticsData | undefined
   getAllAnalytics: () => MuxAnalyticsData[]
   resetAnalytics: (assetId?: string) => void
+  currentVideo: CurrentVideo
+  setCurrentVideo: (video: CurrentVideo) => void
 }
 
 const MuxAnalyticsContext = createContext<MuxAnalyticsContextType | undefined>(undefined)
 
 export function MuxAnalyticsProvider({ children }: { children: ReactNode }) {
   const [analyticsData, setAnalyticsData] = useState<Map<string, MuxAnalyticsData>>(new Map())
+  const [currentVideo, setCurrentVideo] = useState<CurrentVideo>({})
 
   const updateAnalytics = useCallback((assetId: string, data: Partial<MuxAnalyticsData>) => {
     setAnalyticsData(prev => {
@@ -114,7 +122,9 @@ export function MuxAnalyticsProvider({ children }: { children: ReactNode }) {
       updateAnalytics,
       getAnalyticsForAsset,
       getAllAnalytics,
-      resetAnalytics
+      resetAnalytics,
+      currentVideo,
+      setCurrentVideo
     }}>
       {children}
     </MuxAnalyticsContext.Provider>
