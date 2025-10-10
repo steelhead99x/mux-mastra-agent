@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 
 /**
- * System Monitor for Weather Agent
+ * System Monitor for Mux Analytics Agent
  * 
- * This script monitors the health of the weather agent system and provides
+ * This script monitors the health of the Mux analytics agent system and provides
  * real-time status information to help diagnose issues.
  */
 
@@ -123,7 +123,7 @@ function formatStatus(status: SystemStatus): string {
 }
 
 function main() {
-  console.log('Starting Weather Agent System Monitor...\n');
+  console.log('Starting Mux Analytics Agent System Monitor...\n');
   
   // Initial status check
   const status = getSystemStatus();
