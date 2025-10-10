@@ -53,7 +53,7 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 md:gap-6 items-start">
           {/* Video (1/5 on lg+) - Taller video section */}
           <div className="lg:col-span-1 order-2 lg:order-1">
-            <div className="card p-4 md:p-6 flex items-center justify-center" style={{ minHeight: '720px' }}>
+            <div className="card p-2 flex items-center justify-center">
               <Suspense fallback={
                 <div className="w-full rounded-xl border grid place-items-center text-sm" style={{ minHeight: '640px', background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
                   <div className="flex items-center gap-2">
