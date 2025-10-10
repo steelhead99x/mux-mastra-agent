@@ -46,6 +46,9 @@
     "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "@mastra/fastembed": "^0.10.5",
+    "@mastra/libsql": "^0.15.1",
+    "@mastra/memory": "^0.15.6",
     "jq-web": "^0.6.2"
   }
 }

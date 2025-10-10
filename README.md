@@ -74,7 +74,7 @@ AI-powered video streaming analytics and media management agents built with [Mas
 
 ### Mux Analytics Agent (`mux-analytics`)
 
-Get AI-powered insights from your Mux video data.
+Get AI-powered insights from your Mux video data with conversation memory.
 
 **Capabilities:**
 - Query video analytics and metrics
@@ -82,11 +82,20 @@ Get AI-powered insights from your Mux video data.
 - Generate audio reports of analytics
 - Create visual charts of video performance
 - List and inspect video assets
+- **Remember conversation context** across multiple interactions
+- **Semantic search** through past conversations
+- **Track investigation progress** with working memory
 
 **Example queries:**
 - "Show me my recent video analytics"
 - "What errors occurred in the last 24 hours?"
 - "Generate an audio report of my video performance"
+
+**Memory Features:**
+- Maintains conversation history (last 20 messages)
+- Recalls relevant information from past conversations
+- Tracks investigation topics, findings, and recommendations
+- See [backend/MEMORY.md](backend/MEMORY.md) for details
 
 ### Media Vault Agent (`media-vault`)
 

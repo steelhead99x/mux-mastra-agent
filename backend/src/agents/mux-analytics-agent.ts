@@ -17,6 +17,9 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { promises as fs } from 'fs';
 import { resolve, dirname, join } from 'path';
+import { Memory } from "@mastra/memory";
+import { LibSQLStore, LibSQLVector } from "@mastra/libsql";
+import { fastembed } from "@mastra/fastembed";
 import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary } from '../tools/mux-analytics.js';
 import { muxMcpClient as uploadClient } from '../mcp/mux-upload-client.js';
 
@@ -1163,7 +1166,44 @@ export const muxAnalyticsAgent: any = new Agent({
     name: 'muxAnalyticsAgent',
     description: 'TIER 3 Paramount Plus streaming video engineer that provides expert-level troubleshooting, detailed diagnostics, and comprehensive step-by-step guidance for Mux player issues, encoding problems, and streaming optimization. Automatically generates AI audio summaries for all time-based data queries.',
     instructions: buildSystemPrompt(),
-    model: anthropic(process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-latest'),
+    model: anthropic(process.env.ANTHROPIC_MODEL!),
+    memory: new Memory({
+        storage: new LibSQLStore({
+            url: process.env.MASTRA_MEMORY_DB_URL || 'file:./mux-analytics-memory.db'
+        }),
+        vector: new LibSQLVector({
+            connectionUrl: process.env.MASTRA_VECTOR_DB_URL || 'file:./mux-analytics-vector.db'
+        }),
+        embedder: fastembed,
+        options: {
+            lastMessages: 20,
+            semanticRecall: {
+                topK: 5,
+                messageRange: 2,
+                scope: 'thread'
+            },
+            workingMemory: {
+                enabled: true,
+                scope: 'resource',
+                template: `# Mux Analytics Session Context
+
+## User Focus Areas
+- Current investigation topic:
+- Key metrics being tracked:
+- Time period under analysis:
+
+## Recent Findings
+- Notable errors discovered:
+- Performance issues identified:
+- Asset information accessed:
+
+## Action Items
+- Pending troubleshooting steps:
+- Recommendations provided:
+`
+            }
+        }
+    }),
     tools: {
         muxAnalyticsTool,
         muxAssetsListTool,

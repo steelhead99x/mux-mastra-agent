@@ -26,7 +26,7 @@ interface Message {
  * Analytics agent interface for type safety
  */
 interface MuxAnalyticsAgent {
-  streamVNext: (message: string, options?: Record<string, unknown>) => Promise<any>
+  stream: (message: string, options?: Record<string, unknown>) => Promise<any>
 }
 
 /**
@@ -378,15 +378,25 @@ export default function MuxAnalyticsChat() {
       
       console.log('[MuxAnalyticsChat] Sending message:', trimmed)
       
+      // Convert our message history to the format expected by the agent
+      const messageHistory = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+      
+      // Add the new user message
+      messageHistory.push({ role: 'user', content: trimmed })
+      
       // Try direct API call first to get raw streaming response
       try {
+        
         const response = await fetch('/api/agents/mux-analytics/streamVNext', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            messages: [{ role: 'user', content: trimmed }]
+            messages: messageHistory
           })
         })
 
@@ -428,7 +438,7 @@ export default function MuxAnalyticsChat() {
         console.warn('[MuxAnalyticsChat] Direct API failed, trying MastraClient:', apiError)
         
         // Fallback to MastraClient
-        const response = await agent.streamVNext(trimmed)
+        const response = await agent.stream(messageHistory)
         
         console.log('[MuxAnalyticsChat] Received MastraClient response:', response)
         

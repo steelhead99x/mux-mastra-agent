@@ -226,7 +226,7 @@ if (!isPlaygroundMode) {
       // Try to get stream before setting response headers
       let stream;
       try {
-        stream = await agent.streamVNext(messages);
+        stream = await agent.stream(messages);
       } catch (agentError) {
         console.error('[streamVNext] Agent execution failed:', agentError);
         // Return error before headers are sent
@@ -318,7 +318,7 @@ if (!isPlaygroundMode) {
       
       let stream;
       try {
-        stream = await agent.streamVNext(messages);
+        stream = await agent.stream(messages);
       } catch (agentError) {
         console.error('[streamVNext] Agent execution failed:', agentError);
         res.writeHead(500, {
