@@ -107,3 +107,4 @@ test-outputs/
 /backend/node_modules
 /shared/node_modules
 /node_modules
+/backend/.mastra        

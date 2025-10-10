@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     // Expose VITE_ prefixed variables from root .env
     define: {
       'import.meta.env.VITE_MASTRA_API_HOST': JSON.stringify(env.VITE_MASTRA_API_HOST),
+      'import.meta.env.VITE_BACKEND_PORT': JSON.stringify(env.BACKEND_PORT || '3001'),
       'import.meta.env.VITE_MUX_ANALYTICS_AGENT_ID': JSON.stringify(env.VITE_MUX_ANALYTICS_AGENT_ID),
       'import.meta.env.VITE_WEATHER_AGENT_ID': JSON.stringify(env.VITE_WEATHER_AGENT_ID),
       'import.meta.env.VITE_MUX_ASSET_ID': JSON.stringify(env.VITE_MUX_ASSET_ID),
@@ -25,11 +26,11 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_MUX_KEY_SERVER_URL': JSON.stringify(env.VITE_MUX_KEY_SERVER_URL),
     },
     server: {
-      port: 3000,
-      strictPort: true, // Fail if port 3000 is not available
+      port: parseInt(env.FRONTEND_PORT || '3000'),
+      strictPort: true, // Fail if port is not available
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: `http://localhost:${env.BACKEND_PORT || '3001'}`,
           changeOrigin: true,
           timeout: 30000, // Increase timeout to prevent proxy errors
         },

@@ -20,490 +20,400 @@ import express from 'express';
 import cors from 'cors';
 import { muxAnalyticsAgent } from './agents/mux-analytics-agent.js';
 import { mediaVaultAgent } from './agents/media-vault-agent.js';
-import { resolve, join } from 'path';
+import { resolve } from 'path';
 
 // Set telemetry flag to suppress warnings when not using Mastra server environment
 (globalThis as any).___MASTRA_TELEMETRY___ = true;
 
+// Check if we're running in Mastra playground mode or custom Express mode
+const isPlaygroundMode = process.env.MASTRA_PLAYGROUND === 'true' || process.argv.includes('--playground');
+const isCustomMode = process.env.MASTRA_CUSTOM === 'true' || process.argv.includes('--custom');
+
+console.log('[Mastra] Mode:', isPlaygroundMode ? 'Playground' : isCustomMode ? 'Custom Express' : 'Auto-detect');
+
 const mastra = new Mastra({
   agents: { 
-    // Primary agent for Mux analytics
     'mux-analytics': muxAnalyticsAgent,
-    // Media vault agent for additional functionality
     'media-vault': mediaVaultAgent,
   },
 });
 
-const app = express();
+// Always export the mastra instance for playground mode
+export default mastra;
 
-// Configure CORS explicitly for dev and prod
-const corsOrigins = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:3001,https://stage-ai.streamingportfolio.com,https://ai.streamingportfolio.com,https://stage-farmagent-vc2i4.ondigitalocean.app';
-const allowedOrigins = new Set(corsOrigins.split(',').map(origin => origin.trim()));
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow same-origin/non-browser tools
-    if (allowedOrigins.has(origin)) return callback(null, true);
-    return callback(new Error(`CORS blocked for origin: ${origin}`));
-  },
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true, // Enable credentials for production domains
-}));
-
-// Handle preflight quickly (Express 5 compat with path-to-regexp v6)
-app.options(/.*/, cors());
-app.use(express.json());
-
-// Enhanced health check with MCP status
-app.get('/health', async (_req, res) => {
-  try {
-    // Basic health check
-    const health: any = { 
-      status: 'healthy', 
-      service: 'mux-analytics-agent',
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
-      workingDirectory: process.cwd(),
-      mcpStatus: 'unknown'
-    };
-    
-    // Test MCP connection if credentials are available
-    if (process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET) {
-      try {
-        const { muxMcpClient } = await import('./mcp/mux-upload-client.js');
-        const tools = await muxMcpClient.getTools();
-        health.mcpStatus = 'connected';
-        health.mcpTools = Object.keys(tools).length;
-      } catch (mcpError: any) {
-        health.mcpStatus = 'error';
-        health.mcpError = mcpError?.message || String(mcpError);
-      }
-    } else {
-      health.mcpStatus = 'not_configured';
-    }
-    
-    res.json(health);
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      service: 'mux-analytics-agent',
-      timestamp: new Date().toISOString(),
-      error: error?.message || String(error),
-      environment: process.env.NODE_ENV
-    });
-  }
-});
-
-// MCP Debug endpoint for troubleshooting
-app.get('/debug/mcp', async (_req, res) => {
-  try {
-    const debug: any = {
-      timestamp: new Date().toISOString(),
-      environment: process.env.NODE_ENV,
-      mcpConfig: {
-        muxTokenId: process.env.MUX_TOKEN_ID ? '[CONFIGURED]' : '[MISSING]',
-        muxTokenSecret: process.env.MUX_TOKEN_SECRET ? '[CONFIGURED]' : '[MISSING]',
-        mcpUploadArgs: process.env.MUX_MCP_UPLOAD_ARGS || '[DEFAULT]',
-        connectionTimeout: process.env.MUX_CONNECTION_TIMEOUT || '[DEFAULT]'
-      },
-      sdkVersion: 'unknown',
-      tools: [],
-      error: null
-    };
-    
-    // Get MCP SDK version
+// Only start Express server if not in playground mode
+if (!isPlaygroundMode) {
+  // Custom Express server mode
+  console.log('[Mastra] Starting in custom Express server mode...');
+  
+  const app = express();
+  
+  // Configure CORS explicitly for dev and prod
+  const corsOrigins = process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://localhost:3001,https://stage-ai.streamingportfolio.com,https://ai.streamingportfolio.com,https://stage-farmagent-vc2i4.ondigitalocean.app';
+  const allowedOrigins = new Set(corsOrigins.split(',').map(origin => origin.trim()));
+  
+  app.use(cors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin) return callback(null, true); // allow same-origin/non-browser tools
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true, // Enable credentials for production domains
+  }));
+  
+  // Handle preflight quickly (Express 5 compat with path-to-regexp v6)
+  app.options(/.*/, cors());
+  app.use(express.json());
+  
+  // Enhanced health check with MCP status
+  app.get('/health', async (_req: any, res: any) => {
     try {
-      const sdkPackage: any = await import('@modelcontextprotocol/sdk/package.json', { assert: { type: 'json' } });
-      debug.sdkVersion = sdkPackage.default?.version || sdkPackage.version || 'unknown';
-    } catch (e) {
-      debug.sdkVersion = 'unable to determine';
-    }
-    
-    // Test MCP connection
-    if (process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET) {
-      try {
-        const { muxMcpClient } = await import('./mcp/mux-upload-client.js');
-        const tools = await muxMcpClient.getTools();
-        debug.tools = Object.keys(tools);
-        debug.status = 'success';
-      } catch (mcpError: any) {
-        debug.error = {
-          message: mcpError?.message || String(mcpError),
-          stack: mcpError?.stack,
-          type: mcpError?.constructor?.name || typeof mcpError
-        };
-        debug.status = 'error';
-      }
-    } else {
-      debug.error = 'Mux credentials not configured';
-      debug.status = 'not_configured';
-    }
-    
-    res.json(debug);
-  } catch (error: any) {
-    res.status(500).json({
-      status: 'error',
-      timestamp: new Date().toISOString(),
-      error: error?.message || String(error),
-      stack: error?.stack
-    });
-  }
-});
-
-// Standard Mastra agent endpoints
-app.get('/api/agents', (_req, res) => {
-  res.json([
-    { id: 'mux-analytics', name: 'Mux Analytics Agent' },
-    { id: 'media-vault', name: 'Media Vault Agent' }
-  ]);
-});
-
-app.get('/api/agents/:agentId', (req, res) => {
-  const agentId = req.params.agentId;
-  if (agentId === 'mux-analytics') {
-    res.json({ id: agentId, name: 'Mux Analytics Agent' });
-  } else if (agentId === 'media-vault') {
-    res.json({ id: agentId, name: 'Media Vault Agent' });
-  } else {
-    res.status(404).json({ error: 'Agent not found' });
-  }
-});
-
-// Standard agent execution endpoint (non-streaming)
-app.post('/api/agents/:agentId/invoke', async (req, res) => {
-  try {
-    const agentId = req.params.agentId;
-    
-    // Determine which agent to use
-    let agent;
-    if (agentId === 'mux-analytics') {
-      agent = muxAnalyticsAgent;
-    } else if (agentId === 'media-vault') {
-      agent = mediaVaultAgent;
-    } else {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-
-    // Handle different message formats
-    let messages;
-    if (Array.isArray(req.body?.messages)) {
-      messages = req.body.messages;
-    } else if (typeof req.body?.messages === 'string') {
-      messages = [{ role: 'user', content: req.body.messages }];
-    } else if (req.body?.message) {
-      messages = [{ role: 'user', content: String(req.body.message) }];
-    } else {
-      messages = [{ role: 'user', content: 'hello' }];
-    }
-
-    console.log(`[invoke] Received request for agent: ${agentId}`);
-    console.log(`[invoke] Messages:`, messages);
-
-    const result = await agent.text(messages);
-    res.json({ text: result.text });
-    
-  } catch (error) {
-    console.error('[invoke] Error:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
-
-// Agent streamVNext endpoint (for MastraClient compatibility)
-app.post('/api/agents/:agentId/streamVNext', async (req, res) => {
-  try {
-    const agentId = req.params.agentId;
-    
-    // Determine which agent to use
-    let agent;
-    if (agentId === 'mux-analytics') {
-      agent = muxAnalyticsAgent;
-    } else if (agentId === 'media-vault') {
-      agent = mediaVaultAgent;
-    } else {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-
-    // Handle different message formats
-    let messages;
-    if (Array.isArray(req.body?.messages)) {
-      messages = req.body.messages;
-    } else if (typeof req.body?.messages === 'string') {
-      messages = [{ role: 'user', content: req.body.messages }];
-    } else if (req.body?.message) {
-      messages = [{ role: 'user', content: String(req.body.message) }];
-    } else {
-      messages = [{ role: 'user', content: 'hello' }];
-    }
-
-    console.log(`[streamVNext] Received request for agent: ${agentId}`);
-    console.log(`[streamVNext] Messages:`, messages);
-
-    // For MastraClient compatibility, we need to handle this differently
-    // MastraClient expects a streaming response, not a JSON object with streams
-    
-    // Set headers for streaming response
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const stream = await agent.streamVNext(messages);
-    
-    // Stream the response back to the client
-    if (stream.textStream) {
-      for await (const chunk of stream.textStream) {
-        if (chunk && typeof chunk === 'string') {
-          res.write(chunk);
+      // Basic health check
+      const health: any = { 
+        status: 'healthy', 
+        service: 'mux-analytics-agent',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV,
+        workingDirectory: process.cwd(),
+        mcpStatus: 'unknown'
+      };
+      
+      // Test MCP connection if credentials are available
+      if (process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET) {
+        try {
+          const { muxMcpClient } = await import('./mcp/mux-upload-client.js');
+          const tools = await muxMcpClient.getTools();
+          health.mcpStatus = 'connected';
+          health.mcpTools = Object.keys(tools).length;
+        } catch (mcpError: any) {
+          health.mcpStatus = 'error';
+          health.mcpError = mcpError?.message || String(mcpError);
         }
+      } else {
+        health.mcpStatus = 'not_configured';
       }
-      res.end();
-    } else if (stream.text) {
-      res.write(stream.text);
-      res.end();
-    } else {
-      res.write('No content available');
-      res.end();
-    }
-    
-  } catch (error) {
-    console.error('[streamVNext] Error:', error);
-    res.status(500).json({
-      error: error instanceof Error ? error.message : String(error)
-    });
-  }
-});
-
-// StreamVNext endpoint for proper streaming support
-app.post('/api/agents/:agentId/stream/vnext', async (req, res) => {
-  try {
-    const agentId = req.params.agentId;
-    
-    // Determine which agent to use
-    let agent;
-    if (agentId === 'mux-analytics') {
-      agent = muxAnalyticsAgent;
-    } else if (agentId === 'media-vault') {
-      agent = mediaVaultAgent;
-    } else {
-      return res.status(404).json({ error: 'Agent not found' });
-    }
-    
-    // Handle different message formats from the frontend
-    let messages;
-    if (Array.isArray(req.body?.messages)) {
-      // Standard messages array format
-      messages = req.body.messages;
-    } else if (typeof req.body?.messages === 'string') {
-      // MastraClient sends message as string in messages field
-      messages = [{ role: 'user', content: req.body.messages }];
-    } else if (req.body?.message) {
-      // Fallback to message field
-      messages = [{ role: 'user', content: String(req.body.message) }];
-    } else {
-      // Default fallback
-      messages = [{ role: 'user', content: 'hello' }];
-    }
-
-    console.log(`[streamVNext] Received request for agent: ${agentId}`);
-    console.log(`[streamVNext] Raw body:`, JSON.stringify(req.body, null, 2));
-    console.log(`[streamVNext] Processed messages:`, messages);
-
-    // Call the agent with proper streaming
-    const stream = await agent.streamVNext(messages);
-
-    // Handle the streaming response properly
-    if (stream.textStream) {
-      // This is a proper streaming response
-      res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Transfer-Encoding': 'chunked',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-
-      let chunkCount = 0;
-      let totalContent = '';
-      try {
-        for await (const chunk of stream.textStream) {
-          if (chunk && typeof chunk === 'string') {
-            chunkCount++;
-            totalContent += chunk;
-            res.write(chunk);
-          }
-        }
-        console.log(`[streamVNext] Stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
-      } catch (streamError) {
-        console.error('[streamVNext] Stream error:', streamError);
-        // Write error as text chunk
-        res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
-      }
-
-      res.end();
-    } else if (stream.fullStream) {
-      // Handle full stream chunks
-      res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Transfer-Encoding': 'chunked',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-
-      let chunkCount = 0;
-      let totalContent = '';
-      try {
-        for await (const chunk of stream.fullStream) {
-          if (chunk && chunk.type === 'text' && chunk.content) {
-            chunkCount++;
-            totalContent += chunk.content;
-            res.write(chunk.content);
-          }
-        }
-        console.log(`[streamVNext] Full stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
-      } catch (streamError) {
-        console.error('[streamVNext] Full stream error:', streamError);
-        // Write error as text chunk
-        res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
-      }
-
-      res.end();
-    } else if (stream.text) {
-      // Handle simple text response
-      res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.write(stream.text);
-      res.end();
-    } else {
-      // Fallback: return simple text response
-      const text = 'No content available from agent';
-      res.writeHead(200, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.write(text);
-      res.end();
-    }
-
-  } catch (error) {
-    console.error('[streamVNext] Error:', error);
-    
-    // Try to send error as streaming response
-    try {
-      res.writeHead(500, {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
-      res.write(`[Error: ${error instanceof Error ? error.message : String(error)}]`);
-      res.end();
-    } catch (writeError) {
-      // If we can't write to the response, send JSON error
+      
+      res.json(health);
+    } catch (error: any) {
       res.status(500).json({
-        error: error instanceof Error ? error.message : String(error),
-        streamed: false
+        status: 'error',
+        service: 'mux-analytics-agent',
+        timestamp: new Date().toISOString(),
+        error: error?.message || String(error),
+        environment: process.env.NODE_ENV
       });
     }
-  }
-});
-
-// Serve static files from files directory
-try {
-  const filesDir = resolve(process.cwd(), 'files');
-  if (existsSync(filesDir)) {
-    app.use('/files', express.static(filesDir));
-    console.log('[static] Serving files from:', filesDir);
-  } else {
-    console.warn('[static] Files directory not found:', filesDir);
-  }
-} catch (e) {
-  console.warn('[static] Failed to initialize file serving:', e instanceof Error ? e.message : String(e));
-}
-
-// Serve built frontend (SPA) from ../frontend/dist if it exists
-try {
-  // Try multiple possible locations for frontend dist
-  const possiblePaths = [
-    resolve(process.cwd(), '../frontend/dist'),  // Local development
-    resolve(process.cwd(), './frontend/dist'),   // Docker container (backend/frontend/dist)
-    resolve(process.cwd(), '../frontend/dist'),  // Alternative path
+  });
+  
+  // MCP Debug endpoint for troubleshooting
+  app.get('/debug/mcp', async (_req: any, res: any) => {
+    try {
+      const { muxMcpClient } = await import('./mcp/mux-upload-client.js');
+      const tools = await muxMcpClient.getTools();
+      
+      res.json({
+        tools: Object.keys(tools),
+        connected: muxMcpClient.isConnected(),
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Static file serving for development and production
+  const staticPaths = [
+    { path: '/files', dir: resolve(process.cwd(), 'files') },
+    { path: '/public', dir: resolve(process.cwd(), 'src/public') }
   ];
   
-  let frontendDist = null;
-  let indexHtml = null;
+  // Add frontend dist serving for production
+  const frontendDist = resolve(process.cwd(), '../frontend/dist');
+  if (existsSync(frontendDist)) {
+    console.log('[static] Found frontend dist at:', frontendDist);
+    staticPaths.push({ path: '/', dir: frontendDist });
+  }
   
-  for (const path of possiblePaths) {
-    const indexPath = join(path, 'index.html');
-    if (existsSync(path) && existsSync(indexPath)) {
-      frontendDist = path;
-      indexHtml = indexPath;
-      console.log('[static] Found frontend dist at:', path);
-      break;
+  staticPaths.forEach(({ path, dir }) => {
+    if (existsSync(dir)) {
+      console.log(`[static] Serving files from: ${dir}`);
+      app.use(path, express.static(dir));
     }
-  }
+  });
   
-  if (frontendDist && indexHtml) {
-    app.use(express.static(frontendDist));
-    console.log('[static] Serving frontend from:', frontendDist);
-    
-    // Fallback to index.html for non-API routes
-    app.get(/^(?!\/api).*/, (req, res, next) => {
-      if (req.path.startsWith('/api')) return next();
-      res.sendFile(indexHtml);
+  // Agent endpoints
+  app.get('/api/agents', (_req: any, res: any) => {
+    res.json({
+      agents: Object.keys(mastra.agents),
+      timestamp: new Date().toISOString()
     });
-  } else {
-    console.warn('[static] Frontend dist not found in any expected location');
-    console.warn('[static] Searched paths:', possiblePaths);
-  }
-} catch (e) {
-  console.warn('[static] Failed to initialize static frontend middleware:', e instanceof Error ? e.message : String(e));
+  });
+  
+  app.get('/api/agents/:agentId', async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      const agent = mastra.agents[agentId];
+      
+      if (!agent) {
+        return res.status(404).json({ error: `Agent ${agentId} not found` });
+      }
+      
+      res.json({
+        id: agentId,
+        name: agent.name || agentId,
+        description: agent.description || 'No description available',
+        tools: agent.tools ? Object.keys(agent.tools) : [],
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Streaming endpoint for MastraClient compatibility
+  app.post('/api/agents/:agentId/streamVNext', async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      const { messages } = req.body;
+      
+      console.log(`[streamVNext] Received request for agent: ${agentId}`);
+      console.log(`[streamVNext] Messages:`, messages);
+      
+      const agent = mastra.agents[agentId];
+      if (!agent) {
+        return res.status(404).json({ error: `Agent ${agentId} not found` });
+      }
+      
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Messages array is required' });
+      }
+      
+      // Set up streaming response headers
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      
+      let stream;
+      try {
+        stream = await agent.streamVNext(messages);
+      } catch (agentError) {
+        console.error('[streamVNext] Agent execution failed:', agentError);
+        res.status(500).json({
+          error: agentError instanceof Error ? agentError.message : String(agentError)
+        });
+        return;
+      }
+      
+      // Stream the response back to the client
+      if (stream && stream.textStream) {
+        try {
+          for await (const chunk of stream.textStream) {
+            if (chunk && typeof chunk === 'string') {
+              res.write(chunk);
+            }
+          }
+          res.end();
+        } catch (streamError) {
+          console.error('[streamVNext] Stream error:', streamError);
+          res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+          res.end();
+        }
+      } else if (stream && stream.text) {
+        res.write(stream.text);
+        res.end();
+      } else {
+        res.write('No content available');
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('[streamVNext] Error:', error);
+      res.status(500).json({
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Alternative streaming endpoint
+  app.post('/api/agents/:agentId/stream/vnext', async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      const { messages } = req.body;
+      
+      console.log(`[streamVNext] Received request for agent: ${agentId}`);
+      console.log(`[streamVNext] Messages:`, messages);
+      
+      const agent = mastra.agents[agentId];
+      if (!agent) {
+        return res.status(404).json({ error: `Agent ${agentId} not found` });
+      }
+      
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Messages array is required' });
+      }
+      
+      let stream;
+      try {
+        stream = await agent.streamVNext(messages);
+      } catch (agentError) {
+        console.error('[streamVNext] Agent execution failed:', agentError);
+        res.writeHead(500, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.write(`[Error: ${agentError instanceof Error ? agentError.message : String(agentError)}]`);
+        res.end();
+        return;
+      }
+  
+      // Handle the streaming response properly
+      if (stream && stream.textStream) {
+        // This is a proper streaming response
+        res.writeHead(200, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+  
+        let chunkCount = 0;
+        let totalContent = '';
+        try {
+          for await (const chunk of stream.textStream) {
+            if (chunk && typeof chunk === 'string') {
+              chunkCount++;
+              totalContent += chunk;
+              res.write(chunk);
+            }
+          }
+          console.log(`[streamVNext] Stream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
+        } catch (streamError) {
+          console.error('[streamVNext] Stream error:', streamError);
+          // Write error as text chunk
+          res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+        }
+  
+        res.end();
+      } else if (stream.fullStream) {
+        // Handle fullStream format
+        res.writeHead(200, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Transfer-Encoding': 'chunked',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+  
+        let chunkCount = 0;
+        let totalContent = '';
+        try {
+          for await (const chunk of stream.fullStream) {
+            if (chunk && chunk.content && typeof chunk.content === 'string') {
+              chunkCount++;
+              totalContent += chunk.content;
+              res.write(chunk.content);
+            }
+          }
+          console.log(`[streamVNext] FullStream completed with ${chunkCount} chunks, total length: ${totalContent.length}`);
+        } catch (streamError) {
+          console.error('[streamVNext] FullStream error:', streamError);
+          res.write(`\n\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+        }
+  
+        res.end();
+      } else if (stream && stream.text) {
+        // Handle non-streaming response
+        const textContent = typeof stream.text === 'function' ? await stream.text() : stream.text;
+        res.writeHead(200, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.write(textContent);
+        res.end();
+      } else {
+        // No content available
+        res.writeHead(200, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'no-cache',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        });
+        res.write('No content available');
+        res.end();
+      }
+    } catch (error: any) {
+      console.error('[streamVNext] Error:', error);
+      res.status(500).json({
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Non-streaming endpoint for compatibility
+  app.post('/api/agents/:agentId/generate', async (req: any, res: any) => {
+    try {
+      const { agentId } = req.params;
+      const { messages } = req.body;
+      
+      const agent = mastra.agents[agentId];
+      if (!agent) {
+        return res.status(404).json({ error: `Agent ${agentId} not found` });
+      }
+      
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Messages array is required' });
+      }
+      
+      const result = await agent.generate(messages);
+      
+      res.json({
+        content: result.text,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error: any) {
+      console.error('[generate] Error:', error);
+      res.status(500).json({
+        error: error?.message || String(error),
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+  
+  // Start the server
+  const PORT = process.env.BACKEND_PORT || process.env.PORT || 3001;
+  const HOST = process.env.HOST || '0.0.0.0';
+  
+  app.listen(PORT, HOST, () => {
+    console.log(`Mux Analytics Agent server listening on http://${HOST}:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Working directory: ${process.cwd()}`);
+    console.log(`Agent: Mux Video Streaming Analytics Engineer`);
+  });
 }
-
-const port = Number(process.env.PORT || 3001);
-const host = process.env.HOST || '0.0.0.0';
-
-// Add error handling middleware
-app.use((err: any, _req: any, res: any, _next: any) => {
-  console.error('[ERROR] Unhandled error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: err.message || 'Unknown error',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// Add 404 handler for API routes
-app.use('/api', (req, res) => {
-  res.status(404).json({
-    error: 'API endpoint not found',
-    path: req.path,
-    method: req.method,
-    timestamp: new Date().toISOString()
-  });
-});
-
-app.listen(port, host, () => {
-  console.log(`Mux Analytics Agent server listening on http://${host}:${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Working directory: ${process.cwd()}`);
-  console.log(`Agent: Mux Video Streaming Analytics Engineer`);
-});
-
-export default mastra;

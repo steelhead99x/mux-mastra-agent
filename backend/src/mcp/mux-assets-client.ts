@@ -53,38 +53,46 @@ class MuxAssetsMCPClient {
         Logger.info("Connecting to Mux MCP (assets)...");
         console.debug(`MCP Args: ${mcpArgs.join(' ')}`);
 
-        console.debug("[MuxAssetsMCP] Creating StdioClientTransport...");
-        this.transport = new StdioClientTransport({
-            command: "npx",
-            args: mcpArgs,
-            env: {
-                ...process.env,
-                MUX_TOKEN_ID: process.env.MUX_TOKEN_ID,
-                MUX_TOKEN_SECRET: process.env.MUX_TOKEN_SECRET,
-            },
-        });
+        try {
+            console.debug("[MuxAssetsMCP] Creating StdioClientTransport...");
+            this.transport = new StdioClientTransport({
+                command: "npx",
+                args: mcpArgs,
+                env: {
+                    ...process.env,
+                    MUX_TOKEN_ID: process.env.MUX_TOKEN_ID,
+                    MUX_TOKEN_SECRET: process.env.MUX_TOKEN_SECRET,
+                },
+            });
 
-        console.debug("[MuxAssetsMCP] Creating MCP Client...");
-        this.client = new Client({ name: "mux-assets-mastra-client", version: "1.0.0" }, { capabilities: {} });
+            console.debug("[MuxAssetsMCP] Creating MCP Client...");
+            this.client = new Client({ name: "mux-assets-mastra-client", version: "1.0.0" }, { capabilities: {} });
 
-        const connectionTimeout = this.getConnectionTimeout();
-        console.debug(`[MuxAssetsMCP] Starting connection with timeout: ${connectionTimeout}ms`);
-        
-        const connectionPromise = this.client.connect(this.transport);
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => {
-                console.error(`[MuxAssetsMCP] Connection timeout after ${connectionTimeout}ms`);
-                reject(new Error(`Connection timeout after ${connectionTimeout}ms`));
-            }, connectionTimeout);
-        });
-        
-        console.debug("[MuxAssetsMCP] Waiting for connection...");
-        await Promise.race([connectionPromise, timeoutPromise]);
-        this.connected = true;
-        Logger.info("Connected to Mux MCP (assets)");
-        
-        // Start keep-alive mechanism
-        this.startKeepAlive();
+            const connectionTimeout = this.getConnectionTimeout();
+            console.debug(`[MuxAssetsMCP] Starting connection with timeout: ${connectionTimeout}ms`);
+            
+            const connectionPromise = this.client.connect(this.transport);
+            const timeoutPromise = new Promise<never>((_, reject) => {
+                setTimeout(() => {
+                    console.error(`[MuxAssetsMCP] Connection timeout after ${connectionTimeout}ms`);
+                    reject(new Error(`Connection timeout after ${connectionTimeout}ms`));
+                }, connectionTimeout);
+            });
+            
+            console.debug("[MuxAssetsMCP] Waiting for connection...");
+            await Promise.race([connectionPromise, timeoutPromise]);
+            this.connected = true;
+            Logger.info("Connected to Mux MCP (assets)");
+            
+            // Start keep-alive mechanism
+            this.startKeepAlive();
+        } catch (error) {
+            console.error("[MuxAssetsMCP] Connection failed:", error);
+            this.connected = false;
+            this.client = null;
+            this.transport = null;
+            throw error;
+        }
     }
 
     /**
@@ -154,40 +162,59 @@ class MuxAssetsMCPClient {
                             if (!this.client) throw new Error("Client not connected");
                             
                             try {
-                                return (await this.client.callTool({ name: tool.name, arguments: context || {} })).content;
-                                } catch (error) {
-                                    // Handle union type errors from MCP SDK version conflicts
-                                    if (error instanceof Error && (
-                                        error.message.includes('union is not a function') ||
-                                        error.message.includes('evaluatedProperties.union') ||
-                                        error.message.includes('needle.evaluatedProperties') ||
-                                        error.message.includes('Cannot read properties of undefined')
-                                    )) {
-                                        console.error(`MCP SDK version conflict error for tool ${tool.name}:`, {
-                                            toolName: tool.name,
-                                            context,
-                                            error: error.message,
-                                            stack: error.stack,
-                                            sdkVersion: '1.19.1+',
-                                            suggestion: 'This error indicates a version conflict in @modelcontextprotocol/sdk. Please ensure all dependencies are updated.'
-                                        });
-                                        
-                                        // Return a more user-friendly error with actionable information
-                                        throw new Error(`MCP tool ${tool.name} failed due to SDK version conflict. The @modelcontextprotocol/sdk version needs to be updated to 1.19.1 or higher to resolve this issue.`);
-                                    }
+                                const result = await this.client.callTool({ name: tool.name, arguments: context || {} });
+                                return result.content;
+                            } catch (error) {
+                                // Handle union type errors from MCP SDK version conflicts
+                                if (error instanceof Error && (
+                                    error.message.includes('union is not a function') ||
+                                    error.message.includes('evaluatedProperties.union') ||
+                                    error.message.includes('needle.evaluatedProperties') ||
+                                    error.message.includes('Cannot read properties of undefined')
+                                )) {
+                                    console.error(`MCP SDK version conflict error for tool ${tool.name}:`, {
+                                        toolName: tool.name,
+                                        context,
+                                        error: error.message,
+                                        stack: error.stack,
+                                        sdkVersion: '1.19.1+',
+                                        suggestion: 'This error indicates a version conflict in @modelcontextprotocol/sdk. Please ensure all dependencies are updated.'
+                                    });
                                     
-                                    // Handle other MCP-related errors
-                                    if (error instanceof Error && error.message.includes('MCP')) {
-                                        console.error(`MCP error for tool ${tool.name}:`, {
-                                            toolName: tool.name,
-                                            context,
-                                            error: error.message
-                                        });
-                                        throw new Error(`MCP tool ${tool.name} failed: ${error.message}`);
-                                    }
-                                    
-                                    throw error;
+                                    // Return a more user-friendly error with actionable information
+                                    throw new Error(`MCP tool ${tool.name} failed due to SDK version conflict. The @modelcontextprotocol/sdk version needs to be updated to 1.19.1 or higher to resolve this issue.`);
                                 }
+                                
+                                // Handle other MCP-related errors
+                                if (error instanceof Error && error.message.includes('MCP')) {
+                                    console.error(`MCP error for tool ${tool.name}:`, {
+                                        toolName: tool.name,
+                                        context,
+                                        error: error.message
+                                    });
+                                    throw new Error(`MCP tool ${tool.name} failed: ${error.message}`);
+                                }
+                                
+                                // Handle connection errors
+                                if (error instanceof Error && (
+                                    error.message.includes('connection') ||
+                                    error.message.includes('timeout') ||
+                                    error.message.includes('ECONNREFUSED')
+                                )) {
+                                    console.error(`MCP connection error for tool ${tool.name}:`, {
+                                        toolName: tool.name,
+                                        context,
+                                        error: error.message
+                                    });
+                                    // Reset connection state
+                                    this.connected = false;
+                                    this.client = null;
+                                    this.transport = null;
+                                    throw new Error(`MCP connection lost for tool ${tool.name}. Please retry the request.`);
+                                }
+                                
+                                throw error;
+                            }
                         },
                     });
                 } catch (e) {
@@ -274,10 +301,14 @@ class MuxAssetsMCPClient {
             // Snake_case canonical endpoints
             addWrapper('retrieve_video_assets', 'retrieve_video_assets', 'Retrieve a single asset by ID');
             addWrapper('list_video_assets', 'list_video_assets', 'List assets with pagination', z.object({ limit: z.number().optional(), page: z.number().optional() }).passthrough());
+            addWrapper('create_video_playback_ids', 'create_video_playback_ids', 'Create a playback ID for an asset', z.object({ ASSET_ID: z.string(), policy: z.string().optional() }).passthrough());
+            addWrapper('sign_video_playback_ids', 'sign_video_playback_ids', 'Sign a playback ID with a token', z.object({ PLAYBACK_ID: z.string(), token: z.string() }).passthrough());
 
             // Dotted aliases
             addWrapper('video.assets.retrieve', 'retrieve_video_assets', 'Retrieve a single asset by ID');
             addWrapper('video.assets.list', 'list_video_assets', 'List assets with pagination', z.object({ limit: z.number().optional(), page: z.number().optional() }).passthrough());
+            addWrapper('video.playback_ids.create', 'create_video_playback_ids', 'Create a playback ID for an asset', z.object({ ASSET_ID: z.string(), policy: z.string().optional() }).passthrough());
+            addWrapper('video.playback_ids.sign', 'sign_video_playback_ids', 'Sign a playback ID with a token', z.object({ PLAYBACK_ID: z.string(), token: z.string() }).passthrough());
         }
 
         return tools;

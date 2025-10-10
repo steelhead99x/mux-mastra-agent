@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx --watch src/index.ts",
+    "dev": "mastra dev",
+    "dev:custom": "tsx --watch src/index.ts",
     "build": "npm run test && NODE_OPTIONS=--max-old-space-size=2048 npm run compile",
     "compile": "NODE_OPTIONS=--max-old-space-size=2048 tsc --build --verbose",
     "clean": "rm -rf dist .mastra",

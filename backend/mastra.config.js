@@ -13,5 +13,17 @@ export default {
   mcpServers: {
     weatherServer: './src/mcp/weather-server.ts'
   },
-  telemetry: './src/mastra/telemetry.ts'
+  telemetry: './src/mastra/telemetry.ts',
+  // Enable playground in development
+  playground: process.env.NODE_ENV === 'development',
+  // Server configuration
+  server: {
+    port: process.env.MASTRA_PLAYGROUND_PORT || process.env.BACKEND_PORT || process.env.PORT || 3001,
+    host: process.env.HOST || '0.0.0.0',
+    // Enable CORS for development
+    cors: process.env.NODE_ENV === 'development' ? {
+      origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:3001'],
+      credentials: true
+    } : false
+  }
 };

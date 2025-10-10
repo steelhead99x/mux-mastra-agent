@@ -82,8 +82,9 @@ if (rawHost) {
   finalBaseUrl = window.location.origin + '/'
   console.log('[Mastra] Production mode - using same origin:', finalBaseUrl)
 } else {
-  // In development without explicit config, default to localhost:3001
-  finalBaseUrl = 'http://localhost:3001'
+  // In development without explicit config, use environment-configured backend port
+  const backendPort = (import.meta as any)?.env?.VITE_BACKEND_PORT || '3001'
+  finalBaseUrl = `http://localhost:${backendPort}`
   console.log('[Mastra] Development mode - using localhost:', finalBaseUrl)
 }
 

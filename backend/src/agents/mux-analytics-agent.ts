@@ -267,7 +267,13 @@ const ttsAnalyticsReportTool = createTool({
             const { timeframe, includeAssetList } = context as { timeframe?: number[]; includeAssetList?: boolean };
             
             // Fetch analytics data
-            const analyticsResult: any = await (muxAnalyticsTool as any).execute({ context: { timeframe } });
+            let analyticsResult: any;
+            try {
+                analyticsResult = await (muxAnalyticsTool as any).execute({ context: { timeframe } });
+            } catch (error) {
+                console.error('[tts-analytics-report] Analytics tool failed:', error);
+                analyticsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
             
             let summaryText: string;
             let timeRange: { start: string; end: string };
@@ -314,13 +320,18 @@ This report covers the monitoring status for the last 24 hours, confirming that 
             
             // Optionally include asset information
             if (includeAssetList) {
-                const assetsResult: any = await (muxAssetsListTool as any).execute({ context: { limit: 10 } });
-                if (assetsResult.success) {
-                    summaryText += `\n\nRecent Assets: You have ${assetsResult.count} assets. `;
-                    summaryText += assetsResult.assets
-                        .slice(0, 5)
-                        .map((a: any) => `Asset ${a.id.slice(0, 8)} is ${a.status}`)
-                        .join('. ') + '.';
+                try {
+                    const assetsResult: any = await (muxAssetsListTool as any).execute({ context: { limit: 10 } });
+                    if (assetsResult.success) {
+                        summaryText += `\n\nRecent Assets: You have ${assetsResult.count} assets. `;
+                        summaryText += assetsResult.assets
+                            .slice(0, 5)
+                            .map((a: any) => `Asset ${a.id.slice(0, 8)} is ${a.status}`)
+                            .join('. ') + '.';
+                    }
+                } catch (error) {
+                    console.error('[tts-analytics-report] Assets tool failed:', error);
+                    summaryText += `\n\nAsset information is currently unavailable.`;
                 }
             }
             
@@ -360,14 +371,25 @@ This report covers the monitoring status for the last 24 hours, confirming that 
                 await putFileToMux(uploadUrl, resolve(audioPath));
                 console.debug('[tts-analytics-report] Upload completed');
                 
-                // Wait for asset to be created and get asset ID
+                // Create player URL immediately using uploadId (non-blocking response)
                 if (uploadId) {
-                    assetId = await waitForAssetCreation(uploadId);
-                    if (assetId) {
-                        // Create player URL using asset ID - the player will handle signed tokens internally
-                        playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${assetId}`;
-                        console.debug('[tts-analytics-report] Player URL created with asset ID');
-                    }
+                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${uploadId}`;
+                    console.debug('[tts-analytics-report] Player URL created with upload ID (non-blocking)');
+                    
+                    // Start background asset processing
+                    console.debug('[tts-analytics-report] Starting background asset processing...');
+                    (async () => {
+                        try {
+                            assetId = await waitForAssetCreation(uploadId);
+                            if (assetId) {
+                                console.debug(`[tts-analytics-report] Background: Asset created with ID: ${assetId}`);
+                                // Update player URL with actual asset ID
+                                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player.html?assetId=${assetId}`;
+                            }
+                        } catch (error) {
+                            console.warn('[tts-analytics-report] Background asset processing failed:', error);
+                        }
+                    })();
                 }
             } catch (uploadError) {
                 console.error('[tts-analytics-report] Mux upload failed:', uploadError);

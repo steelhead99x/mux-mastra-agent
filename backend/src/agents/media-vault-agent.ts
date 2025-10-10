@@ -625,47 +625,121 @@ const zipMemoryTool = createTool({
 });
 
 /**
- * Create a playback ID for a Mux asset
+ * Create a playback ID for a Mux asset using MCP
  * @param assetId The asset ID to create a playback ID for
  * @returns The created playback ID
  */
 async function createPlaybackId(assetId: string): Promise<string> {
-    const muxTokenId = process.env.MUX_TOKEN_ID;
-    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
+    const useMcp = process.env.USE_MUX_MCP === 'true';
     
-    if (!muxTokenId || !muxTokenSecret) {
-        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
+    if (useMcp) {
+        console.debug(`[createPlaybackId] Creating playback ID for asset ${assetId} using MCP...`);
+        
+        try {
+            const assetsTools = await assetsClient.getTools();
+            let createPlaybackTool = assetsTools['create_video_playback_ids'] || 
+                                   assetsTools['video.playback_ids.create'] ||
+                                   assetsTools['invoke_api_endpoint'];
+            
+            if (!createPlaybackTool) {
+                throw new Error('Mux MCP did not expose playback ID creation tools');
+            }
+            
+            // Use invoke_api_endpoint if no direct tool
+            if (createPlaybackTool === assetsTools['invoke_api_endpoint']) {
+                createPlaybackTool = {
+                    execute: async () => {
+                        return await assetsTools['invoke_api_endpoint'].execute({ 
+                            context: { 
+                                endpoint_name: 'create_video_playback_ids',
+                                arguments: { ASSET_ID: assetId, policy: 'signed' }
+                            } 
+                        });
+                    }
+                };
+            }
+            
+            const createRes = await createPlaybackTool.execute({ 
+                context: { 
+                    ASSET_ID: assetId, 
+                    policy: 'signed' // Use signed playback for better security
+                } 
+            });
+            
+            // Parse MCP response
+            const blocks = Array.isArray(createRes) ? createRes : [createRes];
+            let playbackId: string | undefined;
+            
+            for (const b of blocks as any[]) {
+                const t = b && typeof b === 'object' && typeof b.text === 'string' ? b.text : undefined;
+                if (!t) continue;
+                
+                try {
+                    const payload = JSON.parse(t);
+                    console.debug('[createPlaybackId] Parsed MCP response:', JSON.stringify(payload, null, 2));
+                    
+                    playbackId = payload.id || payload.playback_id || payload.data?.id;
+                    
+                    if (playbackId) {
+                        break;
+                    }
+                } catch (parseError) {
+                    console.warn('[createPlaybackId] Failed to parse MCP response block:', parseError);
+                }
+            }
+            
+            if (!playbackId) {
+                throw new Error('No playback ID received from Mux MCP');
+            }
+            
+            console.debug(`[createPlaybackId] Created playback ID via MCP: ${playbackId}`);
+            return playbackId;
+            
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error('[createPlaybackId] MCP playback ID creation failed:', errorMsg);
+            throw new Error(`Mux MCP playback ID creation failed: ${errorMsg}`);
+        }
+        
+    } else {
+        // Fallback to REST API
+        const muxTokenId = process.env.MUX_TOKEN_ID;
+        const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
+        
+        if (!muxTokenId || !muxTokenSecret) {
+            throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
+        }
+        
+        const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
+        
+        console.debug(`[createPlaybackId] Creating playback ID for asset ${assetId} using REST API...`);
+        
+        const createPlaybackIdResponse = await fetch(`https://api.mux.com/video/v1/assets/${assetId}/playback-ids`, {
+            method: 'POST',
+            headers: {
+                'Authorization': authHeader,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                policy: 'signed' // Use signed playback for better security
+            })
+        } as any);
+        
+        if (!createPlaybackIdResponse.ok) {
+            const errorText = await createPlaybackIdResponse.text().catch(() => '');
+            throw new Error(`Failed to create playback ID: ${createPlaybackIdResponse.status} - ${errorText}`);
+        }
+        
+        const playbackIdData = await createPlaybackIdResponse.json() as any;
+        const playbackId = playbackIdData.data?.id;
+        
+        if (!playbackId) {
+            throw new Error('Failed to create playback ID - no ID returned');
+        }
+        
+        console.debug(`[createPlaybackId] Created playback ID via REST API: ${playbackId}`);
+        return playbackId;
     }
-    
-    const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
-    
-    console.debug(`[createPlaybackId] Creating playback ID for asset ${assetId}...`);
-    
-    const createPlaybackIdResponse = await fetch(`https://api.mux.com/video/v1/assets/${assetId}/playback-ids`, {
-        method: 'POST',
-        headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            policy: 'public' // or 'signed' if you want signed playback
-        })
-    } as any);
-    
-    if (!createPlaybackIdResponse.ok) {
-        const errorText = await createPlaybackIdResponse.text().catch(() => '');
-        throw new Error(`Failed to create playback ID: ${createPlaybackIdResponse.status} - ${errorText}`);
-    }
-    
-    const playbackIdData = await createPlaybackIdResponse.json() as any;
-    const playbackId = playbackIdData.data?.id;
-    
-    if (!playbackId) {
-        throw new Error('Failed to create playback ID - no ID returned');
-    }
-    
-    console.debug(`[createPlaybackId] Created playback ID: ${playbackId}`);
-    return playbackId;
 }
 
 /**
@@ -814,9 +888,160 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
 }
 
 /**
- * Retrieve asset ID from an upload using REST API
+ * Generate signed playback URL using MCP
+ * @param playbackId The playback ID to generate a signed URL for
+ * @param token The signing token
+ * @returns The signed playback URL
+ */
+async function generateSignedPlaybackUrl(playbackId: string, token: string): Promise<string> {
+    const useMcp = process.env.USE_MUX_MCP === 'true';
+    
+    if (useMcp) {
+        console.debug(`[generateSignedPlaybackUrl] Generating signed URL for playback ID ${playbackId} using MCP...`);
+        
+        try {
+            const assetsTools = await assetsClient.getTools();
+            let signTool = assetsTools['sign_video_playback_ids'] || 
+                          assetsTools['video.playback_ids.sign'] ||
+                          assetsTools['invoke_api_endpoint'];
+            
+            if (!signTool) {
+                throw new Error('Mux MCP did not expose playback ID signing tools');
+            }
+            
+            // Use invoke_api_endpoint if no direct tool
+            if (signTool === assetsTools['invoke_api_endpoint']) {
+                signTool = {
+                    execute: async () => {
+                        return await assetsTools['invoke_api_endpoint'].execute({ 
+                            context: { 
+                                endpoint_name: 'sign_video_playback_ids',
+                                arguments: { PLAYBACK_ID: playbackId, token }
+                            } 
+                        });
+                    }
+                };
+            }
+            
+            const signRes = await signTool.execute({ 
+                context: { PLAYBACK_ID: playbackId, token } 
+            });
+            
+            // Parse MCP response
+            const blocks = Array.isArray(signRes) ? signRes : [signRes];
+            let signedUrl: string | undefined;
+            
+            for (const b of blocks as any[]) {
+                const t = b && typeof b === 'object' && typeof b.text === 'string' ? b.text : undefined;
+                if (!t) continue;
+                
+                try {
+                    const payload = JSON.parse(t);
+                    console.debug('[generateSignedPlaybackUrl] Parsed MCP response:', JSON.stringify(payload, null, 2));
+                    
+                    signedUrl = payload.signed_url || payload.url || payload.data?.signed_url;
+                    
+                    if (signedUrl) {
+                        break;
+                    }
+                } catch (parseError) {
+                    console.warn('[generateSignedPlaybackUrl] Failed to parse MCP response block:', parseError);
+                }
+            }
+            
+            if (!signedUrl) {
+                throw new Error('No signed URL received from Mux MCP');
+            }
+            
+            console.debug(`[generateSignedPlaybackUrl] Generated signed URL via MCP: ${signedUrl}`);
+            return signedUrl;
+            
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error('[generateSignedPlaybackUrl] MCP signing failed:', errorMsg);
+            throw new Error(`Mux MCP signing failed: ${errorMsg}`);
+        }
+        
+    } else {
+        // Fallback: construct signed URL manually
+        const baseUrl = `https://stream.mux.com/${playbackId}.m3u8`;
+        const signedUrl = `${baseUrl}?token=${encodeURIComponent(token)}`;
+        console.debug(`[generateSignedPlaybackUrl] Generated signed URL via manual construction: ${signedUrl}`);
+        return signedUrl;
+    }
+}
+
+/**
+ * Retrieve asset ID from an upload using MCP or REST API
  */
 async function retrieveAssetIdFromUpload(uploadId: string): Promise<string | undefined> {
+    const useMcp = process.env.USE_MUX_MCP === 'true';
+    
+    if (useMcp) {
+        console.debug(`[retrieveAssetIdFromUpload] Retrieving asset ID from upload ${uploadId} using MCP...`);
+        
+        try {
+            const uploadTools = await uploadClient.getTools();
+            let retrieveTool = uploadTools['retrieve_video_uploads'] || 
+                             uploadTools['video.uploads.get'] ||
+                             uploadTools['invoke_api_endpoint'];
+            
+            if (!retrieveTool) {
+                throw new Error('Mux MCP did not expose upload retrieval tools');
+            }
+            
+            // Use invoke_api_endpoint if no direct tool
+            if (retrieveTool === uploadTools['invoke_api_endpoint']) {
+                retrieveTool = {
+                    execute: async () => {
+                        return await uploadTools['invoke_api_endpoint'].execute({ 
+                            context: { 
+                                endpoint_name: 'retrieve_video_uploads',
+                                arguments: { UPLOAD_ID: uploadId }
+                            } 
+                        });
+                    }
+                };
+            }
+            
+            const retrieveRes = await retrieveTool.execute({ 
+                context: { UPLOAD_ID: uploadId } 
+            });
+            
+            // Parse MCP response
+            const blocks = Array.isArray(retrieveRes) ? retrieveRes : [retrieveRes];
+            let assetId: string | undefined;
+            
+            for (const b of blocks as any[]) {
+                const t = b && typeof b === 'object' && typeof b.text === 'string' ? b.text : undefined;
+                if (!t) continue;
+                
+                try {
+                    const payload = JSON.parse(t);
+                    console.debug('[retrieveAssetIdFromUpload] Parsed MCP response:', JSON.stringify(payload, null, 2));
+                    
+                    assetId = payload.asset_id || payload.data?.asset_id || payload.asset?.id;
+                    
+                    if (assetId) {
+                        break;
+                    }
+                } catch (parseError) {
+                    console.warn('[retrieveAssetIdFromUpload] Failed to parse MCP response block:', parseError);
+                }
+            }
+            
+            if (assetId) {
+                console.debug(`[retrieveAssetIdFromUpload] Retrieved asset ID via MCP: ${assetId}`);
+                return assetId;
+            }
+            
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error('[retrieveAssetIdFromUpload] MCP retrieval failed:', errorMsg);
+        }
+    }
+    
+    // Fallback to REST API
     const muxTokenId = process.env.MUX_TOKEN_ID;
     const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
     
@@ -837,12 +1062,12 @@ async function retrieveAssetIdFromUpload(uploadId: string): Promise<string | und
         
         if (retrieveRes.ok) {
             const retrieveData = await retrieveRes.json() as any;
-            console.debug('[retrieveAssetIdFromUpload] Retrieval response:', JSON.stringify(retrieveData, null, 2));
+            console.debug('[retrieveAssetIdFromUpload] REST API response:', JSON.stringify(retrieveData, null, 2));
             
             if (retrieveData && retrieveData.data) {
                 const assetId = retrieveData.data.asset_id;
                 if (assetId) {
-                    console.debug(`[retrieveAssetIdFromUpload] Retrieved asset ID: ${assetId}`);
+                    console.debug(`[retrieveAssetIdFromUpload] Retrieved asset ID via REST API: ${assetId}`);
                     return assetId;
                 }
             }
@@ -850,7 +1075,7 @@ async function retrieveAssetIdFromUpload(uploadId: string): Promise<string | und
             console.warn('[retrieveAssetIdFromUpload] Failed to retrieve upload info:', retrieveRes.status);
         }
     } catch (error) {
-        console.warn('[retrieveAssetIdFromUpload] Retrieval failed:', error instanceof Error ? error.message : String(error));
+        console.warn('[retrieveAssetIdFromUpload] REST API retrieval failed:', error instanceof Error ? error.message : String(error));
     }
     
     return undefined;
@@ -1002,10 +1227,8 @@ const ttsWeatherTool = createTool({
 
             // Upload to Mux and get streaming URLs
             let mux: any = null;
-            let playbackUrl: string | undefined;
             let playerUrl: string | undefined;
-            let assetId: string | undefined;
-            let playbackId: string | undefined;
+            let uploadId: string | undefined;
 
             try {
                 // Create upload using configurable method (MCP or REST API)
@@ -1014,9 +1237,8 @@ const ttsWeatherTool = createTool({
                 
                 // Create upload
                 const uploadData = await createMuxUpload();
-                const uploadId = uploadData.uploadId;
+                uploadId = uploadData.uploadId;
                 const uploadUrl = uploadData.uploadUrl;
-                assetId = uploadData.assetId;
                 
                 if (!uploadUrl) {
                     throw new Error('No upload URL received from Mux - cannot proceed with file upload');
@@ -1024,82 +1246,91 @@ const ttsWeatherTool = createTool({
                 
                 console.debug(`[tts-weather-upload] Upload URL: ${uploadUrl}`);
                 if (uploadId) console.debug(`[tts-weather-upload] Upload ID: ${uploadId}`);
-                if (assetId) console.debug(`[tts-weather-upload] Asset ID: ${assetId}`);
 
                 console.debug('[tts-weather-upload] Uploading audio file to Mux...');
                 await putFileToMux(uploadUrl, resolve(audioPath));
                 console.debug('[tts-weather-upload] Audio file upload completed');
 
-                // Retrieve asset ID if not provided
-                if (!assetId && uploadId) {
-                    console.debug('[tts-weather-upload] Retrieving asset ID from upload...');
-                    assetId = await retrieveAssetIdFromUpload(uploadId);
+                // Build player URL immediately from uploadId (non-blocking response)
+                if (uploadId) {
+                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${uploadId}`;
+                    console.debug(`[tts-weather-upload] Player URL: ${playerUrl}`);
                 }
 
-                if (!assetId) {
-                    console.warn('[tts-weather-upload] No asset ID available - will use upload ID for player URL');
-                    assetId = uploadId; // Fallback to upload ID
-                }
-
-                // Create playback ID for the asset if we have an asset ID
-                if (assetId && assetId !== uploadId) {
-                    try {
-                        console.debug('[tts-weather-upload] Creating playback ID for asset...');
-                        playbackId = await createPlaybackId(assetId);
-                        console.debug(`[tts-weather-upload] Created playback ID: ${playbackId}`);
-                    } catch (error) {
-                        const errorMsg = error instanceof Error ? error.message : String(error);
-                        console.warn(`[tts-weather-upload] Failed to create playback ID: ${errorMsg}`);
-                        // Continue without playback ID - it will be created during asset polling
-                    }
-                }
-
-                // Build player URL immediately from assetId (always provide)
-                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                console.debug(`[tts-weather-upload] Player URL: ${playerUrl}`);
-
-                // Start asset readiness polling in the background (non-blocking)
+                // Start background processing for asset ID retrieval and playback ID creation
                 let assetReadyPromise: Promise<any> | null = null;
-                if (assetId) {
-                    console.debug('[tts-weather-upload] Starting background asset readiness polling...');
-                    
-                    // Calculate timeout based on audio file size (longer files take more time to process)
-                    let audioFileSize = 0;
+                console.debug('[tts-weather-upload] Starting background asset processing...');
+                
+                // Calculate timeout based on audio file size (longer files take more time to process)
+                let audioFileSize = 0;
+                try {
+                    const stats = await fs.stat(audioPath);
+                    audioFileSize = stats.size;
+                } catch (error) {
+                    console.debug(`[tts-weather-upload] Could not get audio file size: ${error instanceof Error ? error.message : String(error)}`);
+                }
+                const baseTimeoutMs = 10 * 60 * 1000; // 10 minutes base
+                const sizeBasedTimeoutMs = Math.min(audioFileSize / 1000, 10 * 60 * 1000); // 1ms per KB, max 10 minutes
+                const totalTimeoutMs = Math.min(baseTimeoutMs + sizeBasedTimeoutMs, 30 * 60 * 1000); // Max 30 minutes
+                
+                console.debug(`[tts-weather-upload] Audio file size: ${audioFileSize} bytes, calculated timeout: ${Math.round(totalTimeoutMs / 1000)}s`);
+                
+                // Start background processing that doesn't block the response
+                assetReadyPromise = (async () => {
                     try {
-                        const stats = await fs.stat(audioPath);
-                        audioFileSize = stats.size;
+                        // Step 1: Retrieve asset ID from upload
+                        console.debug('[tts-weather-upload] Background: Retrieving asset ID from upload...');
+                        const retrievedAssetId = uploadId ? await retrieveAssetIdFromUpload(uploadId) : undefined;
+                        
+                        if (!retrievedAssetId) {
+                            console.warn('[tts-weather-upload] Background: No asset ID retrieved, using upload ID');
+                            return { assetId: uploadId, playbackId: undefined, status: 'processing' };
+                        }
+                        
+                        console.debug(`[tts-weather-upload] Background: Retrieved asset ID: ${retrievedAssetId}`);
+                        
+                        // Step 2: Create playback ID for the asset
+                        let playbackId: string | undefined;
+                        try {
+                            console.debug('[tts-weather-upload] Background: Creating playback ID for asset...');
+                            playbackId = await createPlaybackId(retrievedAssetId);
+                            console.debug(`[tts-weather-upload] Background: Created playback ID: ${playbackId}`);
+                        } catch (error) {
+                            const errorMsg = error instanceof Error ? error.message : String(error);
+                            console.warn(`[tts-weather-upload] Background: Failed to create playback ID: ${errorMsg}`);
+                        }
+                        
+                        // Step 3: Wait for asset to be ready (with the retrieved asset ID)
+                        console.debug('[tts-weather-upload] Background: Starting asset readiness polling...');
+                        const result = await waitForMuxAssetReady(retrievedAssetId, {
+                            pollMs: 5000, // Initial poll interval (will be overridden by progressive logic)
+                            timeoutMs: totalTimeoutMs
+                        });
+                        
+                        console.log(`[tts-weather-upload] Background: Asset ${retrievedAssetId} is ready! Status: ${result.status}, Playback ID: ${result.playbackId}`);
+                        return {
+                            assetId: retrievedAssetId,
+                            playbackId: result.playbackId || playbackId,
+                            status: result.status,
+                            hlsUrl: result.hlsUrl,
+                            playerUrl: result.playerUrl
+                        };
+                        
                     } catch (error) {
-                        console.debug(`[tts-weather-upload] Could not get audio file size: ${error instanceof Error ? error.message : String(error)}`);
-                    }
-                    const baseTimeoutMs = 10 * 60 * 1000; // 10 minutes base
-                    const sizeBasedTimeoutMs = Math.min(audioFileSize / 1000, 10 * 60 * 1000); // 1ms per KB, max 10 minutes
-                    const totalTimeoutMs = Math.min(baseTimeoutMs + sizeBasedTimeoutMs, 30 * 60 * 1000); // Max 30 minutes
-                    
-                    console.debug(`[tts-weather-upload] Audio file size: ${audioFileSize} bytes, calculated timeout: ${Math.round(totalTimeoutMs / 1000)}s`);
-                    
-                    assetReadyPromise = waitForMuxAssetReady(assetId, {
-                        pollMs: 5000, // Initial poll interval (will be overridden by progressive logic)
-                        timeoutMs: totalTimeoutMs
-                    }).then(result => {
-                        console.log(`[tts-weather-upload] Asset ${assetId} is ready! Status: ${result.status}, Playback ID: ${result.playbackId}`);
-                        return result;
-                    }).catch(error => {
                         const errorMsg = error instanceof Error ? error.message : String(error);
                         if (errorMsg.includes('Timeout')) {
-                            console.warn(`[tts-weather-upload] Background asset polling timed out for ${assetId} after ${Math.round(totalTimeoutMs / 1000)}s. Asset may still be processing.`);
+                            console.warn(`[tts-weather-upload] Background: Asset polling timed out after ${Math.round(totalTimeoutMs / 1000)}s. Asset may still be processing.`);
                         } else {
-                            console.warn(`[tts-weather-upload] Background asset polling failed for ${assetId}:`, errorMsg);
+                            console.warn(`[tts-weather-upload] Background: Asset processing failed:`, errorMsg);
                         }
-                        return null;
-                    });
-                } else {
-                    console.warn('[tts-weather-upload] No asset ID available for polling');
-                }
+                        return { assetId: uploadId, playbackId: undefined, status: 'processing', error: errorMsg };
+                    }
+                })();
 
                 mux = {
-                    assetId,
-                    playbackId,
-                    hlsUrl: playbackUrl,
+                    assetId: uploadId, // Use uploadId as initial assetId
+                    playbackId: undefined, // Will be set by background processing
+                    hlsUrl: undefined, // Will be set by background processing
                     playerUrl,
                     assetReadyPromise, // Include the promise for background polling
                 };
@@ -1130,17 +1361,16 @@ const ttsWeatherTool = createTool({
                 console.debug('[tts-weather-upload] Cleanup completed');
             }
 
-            // Always include playerUrl if we know assetId
-            if (!playerUrl && assetId) {
-                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+            // Always include playerUrl if we know uploadId
+            if (!playerUrl && uploadId) {
+                playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${uploadId}`;
             }
 
             // Determine success based on what we achieved
             const hasPlayerUrl = !!playerUrl;
-            const hasHlsUrl = !!playbackUrl;
             const hasMuxError = mux && 'error' in mux;
             
-            const success = hasPlayerUrl || hasHlsUrl || !hasMuxError;
+            const success = hasPlayerUrl || !hasMuxError;
 
             return {
                 success,
@@ -1149,12 +1379,12 @@ const ttsWeatherTool = createTool({
                 localAudioFile: audioPath,
                 chartUrl,
                 mux,
-                playbackUrl,
+                playbackUrl: undefined, // Will be set by background processing
                 playerUrl,
-                assetId,
-                playbackId,
+                assetId: uploadId, // Use uploadId as initial assetId
+                playbackId: undefined, // Will be set by background processing
                 message: success 
-                    ? 'Audio weather report with static image and temperature chart generated successfully'
+                    ? 'Audio weather report with static image and temperature chart generated successfully. Asset is processing in the background.'
                     : 'Audio generated but Mux upload failed - check local files'
             };
 
@@ -1403,5 +1633,5 @@ async function textShim(args: { messages: Array<{ role: string; content: string 
 export const mediaVaultAgentTestWrapper: any = mediaVaultAgent as any;
 (mediaVaultAgentTestWrapper as any).text = textShim;
 
-// Export the createPlaybackId function for testing
-export { createPlaybackId };
+// Export functions for testing
+export { createPlaybackId, createMuxUpload, retrieveAssetIdFromUpload, generateSignedPlaybackUrl, putFileToMux };
