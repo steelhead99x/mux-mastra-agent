@@ -18,6 +18,7 @@ import { z } from "zod";
 import { promises as fs } from 'fs';
 import { resolve, dirname, join } from 'path';
 import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary } from '../tools/mux-analytics.js';
+import { muxMcpClient as uploadClient } from '../mcp/mux-upload-client.js';
 
 // Utility function to sanitize API keys from error messages
 function sanitizeApiKey(message: string): string {
@@ -77,9 +78,87 @@ async function synthesizeWithDeepgramTTS(text: string): Promise<Buffer> {
 
 
 /**
- * Wait for asset to be created from upload
+ * Wait for asset to be created from upload using MCP
  */
 async function waitForAssetCreation(uploadId: string): Promise<string | undefined> {
+    const useMcp = process.env.USE_MUX_MCP === 'true';
+    
+    if (useMcp) {
+        console.debug(`[waitForAssetCreation] Using MCP to check upload status for ${uploadId}`);
+        
+        try {
+            const uploadTools = await uploadClient.getTools();
+            let retrieveTool = uploadTools['retrieve_video_uploads'] || uploadTools['video.uploads.get'];
+            
+            // If no direct tool, try invoke_api_endpoint
+            if (!retrieveTool) {
+                const invokeTool = uploadTools['invoke_api_endpoint'];
+                if (!invokeTool) {
+                    throw new Error('Mux MCP did not expose any upload retrieval tools or invoke_api_endpoint');
+                }
+                
+                retrieveTool = {
+                    execute: async ({ context }: { context: any }) => {
+                        return await invokeTool.execute({ 
+                            context: { 
+                                endpoint_name: 'retrieve_video_uploads',
+                                arguments: context 
+                            } 
+                        });
+                    }
+                };
+            }
+            
+            // Poll for asset creation with timeout
+            const maxAttempts = 30; // 30 attempts
+            const delayMs = 2000; // 2 seconds between attempts
+            const timeoutMs = maxAttempts * delayMs; // 60 seconds total timeout
+            
+            console.debug(`[waitForAssetCreation] Waiting for asset creation from upload ${uploadId}...`);
+            
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                try {
+                    const retrieveRes = await retrieveTool.execute({ context: { id: uploadId } });
+                    
+                    if (retrieveRes && retrieveRes.data) {
+                        const upload = retrieveRes.data;
+                        
+                        if (upload && upload.asset_id) {
+                            console.debug(`[waitForAssetCreation] Asset created: ${upload.asset_id}`);
+                            return upload.asset_id;
+                        }
+                        
+                        if (upload && upload.status === 'errored') {
+                            throw new Error(`Upload failed: ${upload.error?.message || 'Unknown error'}`);
+                        }
+                        
+                        console.debug(`[waitForAssetCreation] Attempt ${attempt}/${maxAttempts}: Upload status: ${upload?.status || 'unknown'}`);
+                    }
+                    
+                    // Wait before next attempt
+                    if (attempt < maxAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, delayMs));
+                    }
+                    
+                } catch (error) {
+                    console.warn(`[waitForAssetCreation] Attempt ${attempt} failed:`, error);
+                    if (attempt === maxAttempts) {
+                        throw error;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, delayMs));
+                }
+            }
+            
+            console.warn(`[waitForAssetCreation] Timeout waiting for asset creation after ${timeoutMs}ms`);
+            return undefined;
+            
+        } catch (error) {
+            console.error('[waitForAssetCreation] MCP error:', error);
+            throw error;
+        }
+    }
+    
+    // Fallback to REST API
     const muxTokenId = process.env.MUX_TOKEN_ID;
     const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
     
@@ -94,7 +173,7 @@ async function waitForAssetCreation(uploadId: string): Promise<string | undefine
     const delayMs = 2000; // 2 seconds between attempts
     const timeoutMs = maxAttempts * delayMs; // 60 seconds total timeout
     
-    console.debug(`[waitForAssetCreation] Waiting for asset creation from upload ${uploadId}...`);
+    console.debug(`[waitForAssetCreation] Using REST API to check upload status for ${uploadId}...`);
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
@@ -143,9 +222,71 @@ async function waitForAssetCreation(uploadId: string): Promise<string | undefine
 }
 
 /**
- * Create Mux upload
+ * Create Mux upload using either MCP or REST API based on USE_MUX_MCP env variable
  */
 async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: string; assetId?: string }> {
+    const useMcp = process.env.USE_MUX_MCP === 'true';
+    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
+    const playbackPolicy = process.env.MUX_PLAYBACK_POLICY;
+    
+    if (useMcp) {
+        console.debug('[createMuxUpload] Using Mux MCP for upload creation');
+        
+        try {
+            const uploadTools = await uploadClient.getTools();
+            let createTool = uploadTools['create_video_uploads'] || uploadTools['video.uploads.create'];
+            
+            // If no direct tool, try invoke_api_endpoint
+            if (!createTool) {
+                const invokeTool = uploadTools['invoke_api_endpoint'];
+                if (!invokeTool) {
+                    throw new Error('Mux MCP did not expose any upload tools or invoke_api_endpoint');
+                }
+                
+                createTool = {
+                    execute: async ({ context }: { context: any }) => {
+                        return await invokeTool.execute({ 
+                            context: { 
+                                endpoint_name: 'create_video_uploads',
+                                arguments: context 
+                            } 
+                        });
+                    }
+                };
+            }
+            
+            const createArgs: any = {
+                cors_origin: corsOrigin
+            };
+            
+            // Add playback policy if specified
+            if (playbackPolicy && playbackPolicy !== 'public') {
+                createArgs.new_asset_settings = {
+                    playback_policies: [playbackPolicy]
+                };
+            }
+            
+            console.debug('[createMuxUpload] Creating upload via MCP');
+            const createRes = await createTool.execute({ context: createArgs });
+            
+            if (createRes && createRes.data) {
+                const uploadId = createRes.data.id;
+                const uploadUrl = createRes.data.url;
+                const assetId = createRes.data.asset_id;
+                
+                console.debug(`[createMuxUpload] MCP upload created: id=${uploadId}, has_url=${!!uploadUrl}, asset_id=${assetId}`);
+                return { uploadId, uploadUrl, assetId };
+            }
+            
+            throw new Error('Invalid response format from Mux MCP');
+            
+        } catch (error) {
+            console.error('[createMuxUpload] MCP error:', error);
+            throw error;
+        }
+    }
+    
+    // Fallback to REST API
     const muxTokenId = process.env.MUX_TOKEN_ID;
     const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
     
@@ -153,12 +294,18 @@ async function createMuxUpload(): Promise<{ uploadId?: string; uploadUrl?: strin
         throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required and must be valid');
     }
     
-    const corsOrigin = process.env.MUX_CORS_ORIGIN || 'https://www.streamingportfolio.com';
     const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
     
     const uploadPayload: any = {
         cors_origin: corsOrigin
     };
+    
+    // Add playback policy if specified
+    if (playbackPolicy && playbackPolicy !== 'public') {
+        uploadPayload.new_asset_settings = {
+            playback_policy: [playbackPolicy]
+        };
+    }
     
     console.debug('[createMuxUpload] Creating upload via REST API');
     

@@ -23,7 +23,7 @@ import { muxDataMcpClient } from '../mcp/mux-data-client.js';
 import { muxAnalyticsAgent } from '../agents/mux-analytics-agent.js';
 import { 
   muxAnalyticsTool, 
-  muxAssetsListTool, 
+  // muxAssetsListTool, 
   muxVideoViewsTool, 
   muxErrorsTool 
 } from '../tools/mux-analytics.js';

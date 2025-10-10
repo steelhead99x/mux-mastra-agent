@@ -31,12 +31,24 @@ const isCustomMode = process.env.MASTRA_CUSTOM === 'true' || process.argv.includ
 
 console.log('[Mastra] Mode:', isPlaygroundMode ? 'Playground' : isCustomMode ? 'Custom Express' : 'Auto-detect');
 
+// Create agents configuration
+const agentsConfig = { 
+  'mux-analytics': muxAnalyticsAgent,
+  'media-vault': mediaVaultAgent,
+};
+
 const mastra = new Mastra({
-  agents: { 
-    'mux-analytics': muxAnalyticsAgent,
-    'media-vault': mediaVaultAgent,
-  },
-});
+  agents: agentsConfig,
+}) as any; // Type cast: Mastra's type definition doesn't expose agents property
+
+// Workaround: Mastra constructor doesn't properly initialize agents in some cases
+// This ensures agents are always available for the Express server
+if (!mastra.agents || Object.keys(mastra.agents).length === 0) {
+  console.warn('[Mastra] Agents not initialized by constructor, adding manually...');
+  mastra.agents = agentsConfig;
+}
+
+console.log('[Mastra] Agents loaded:', Object.keys(mastra.agents || {}).join(', '));
 
 // Always export the mastra instance for playground mode
 export default mastra;
@@ -149,7 +161,7 @@ if (!isPlaygroundMode) {
   // Agent endpoints
   app.get('/api/agents', (_req: any, res: any) => {
     res.json({
-      agents: Object.keys(mastra.agents),
+      agents: Object.keys(mastra.agents || {}),
       timestamp: new Date().toISOString()
     });
   });
@@ -157,10 +169,13 @@ if (!isPlaygroundMode) {
   app.get('/api/agents/:agentId', async (req: any, res: any) => {
     try {
       const { agentId } = req.params;
-      const agent = mastra.agents[agentId];
+      const agent = mastra.agents?.[agentId];
       
       if (!agent) {
-        return res.status(404).json({ error: `Agent ${agentId} not found` });
+        return res.status(404).json({ 
+          error: `Agent ${agentId} not found`, 
+          availableAgents: Object.keys(mastra.agents || {})
+        });
       }
       
       res.json({
@@ -185,11 +200,14 @@ if (!isPlaygroundMode) {
       const { messages } = req.body;
       
       console.log(`[streamVNext] Received request for agent: ${agentId}`);
-      console.log(`[streamVNext] Messages:`, messages);
       
-      const agent = mastra.agents[agentId];
+      const agent = mastra.agents?.[agentId];
       if (!agent) {
-        return res.status(404).json({ error: `Agent ${agentId} not found` });
+        return res.status(404).json({ 
+          error: `Agent ${agentId} not found`, 
+          availableAgents: Object.keys(mastra.agents || {}),
+          requestedAgent: agentId
+        });
       }
       
       if (!messages || !Array.isArray(messages)) {
@@ -407,7 +425,7 @@ if (!isPlaygroundMode) {
   });
   
   // Start the server
-  const PORT = process.env.BACKEND_PORT || process.env.PORT || 3001;
+  const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3001', 10);
   const HOST = process.env.HOST || '0.0.0.0';
   
   app.listen(PORT, HOST, () => {

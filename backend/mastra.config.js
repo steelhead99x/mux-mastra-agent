@@ -8,12 +8,8 @@ export default {
     muxAnalyticsAgent: './src/agents/mux-analytics-agent.ts'
   },
   tools: {
-    weatherTool: './src/tools/weather.ts'
+    muxAnalyticsTool: './src/tools/mux-analytics.ts'
   },
-  mcpServers: {
-    weatherServer: './src/mcp/weather-server.ts'
-  },
-  telemetry: './src/mastra/telemetry.ts',
   // Enable playground in development
   playground: process.env.NODE_ENV === 'development',
   // Server configuration

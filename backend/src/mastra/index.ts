@@ -16,16 +16,7 @@ export const tools = {
   muxErrorsTool
 }
 
-// Minimal telemetry configuration for Mastra dev playground
-export const telemetry = {
-  enabled: true,
-  serviceName: 'paramount-plus-video-professional-streaming-media-agent',
-  sampling: {
-    type: 'always_on' as const
-  }
-}
-
 // MCP Servers configuration (empty for now)
 export const mcpServers = {}
 
-export default { agents, tools, mcpServers, telemetry }
+export default { agents, tools, mcpServers }
