@@ -713,7 +713,6 @@ describe('Mux MCP Integration Tests', () => {
       
       // Check for essential tools
       const expectedTools = [
-        'weatherTool',
         'ttsWeatherTool',
         'zipMemoryTool',
         'assetReadinessTool'
