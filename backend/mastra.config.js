@@ -21,11 +21,11 @@ export default {
   playground: process.env.NODE_ENV === 'development',
   // Server configuration
   server: {
-    port: process.env.MASTRA_PLAYGROUND_PORT || process.env.BACKEND_PORT || process.env.PORT || 3001,
+    port: process.env.MASTRA_PLAYGROUND_PORT || process.env.BACKEND_PORT || process.env.PORT || 3002,
     host: process.env.HOST || '0.0.0.0',
     // Enable CORS for development
     cors: process.env.NODE_ENV === 'development' ? {
-      origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:3001'],
+      origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:5173'],
       credentials: true
     } : false
   }
