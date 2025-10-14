@@ -1,33 +1,33 @@
 # Simple production Dockerfile for Digital Ocean
-FROM node:24-alpine
+FROM node:24-slim
 
 WORKDIR /app
 
 # Install system dependencies needed for native modules (canvas, etc.)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
-    cairo \
-    jpeg \
-    pango \
-    giflib \
-    pixman \
-    pangomm \
-    libjpeg-turbo \
-    freetype \
-    ffmpeg
+    libcairo2-dev \
+    libjpeg-dev \
+    libpango1.0-dev \
+    libgif-dev \
+    build-essential \
+    libjpeg-turbo8-dev \
+    libfreetype6-dev \
+    libcairo2 \
+    libjpeg62-turbo \
+    libpango-1.0-0 \
+    libgif7 \
+    libpixman-1-0 \
+    libpangocairo-1.0-0 \
+    libjpeg-turbo8 \
+    libfreetype6 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # Ensure Python is available for node-gyp
-RUN ln -sf python3 /usr/bin/python
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Copy package files
 COPY package*.json ./

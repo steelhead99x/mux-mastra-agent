@@ -35,7 +35,6 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
-    "@anush008/tokenizers-linux-x64-musl": "^0.10.3",
     "@cartesia/cartesia-js": "^2.2.5",
     "@deepgram/sdk": "^4.11.2",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

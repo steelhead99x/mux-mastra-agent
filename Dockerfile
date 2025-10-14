@@ -1,19 +1,19 @@
 # Multi-stage build for production
-FROM node:24-alpine AS base
+FROM node:24-slim AS base
 
 # Install system dependencies needed for native modules (canvas, etc.)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev
+    libcairo2-dev \
+    libjpeg-dev \
+    libpango1.0-dev \
+    libgif-dev \
+    build-essential \
+    libjpeg-turbo8-dev \
+    libfreetype6-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -35,7 +35,7 @@ FROM base AS builder-deps
 WORKDIR /app
 
 # Ensure Python is available for node-gyp
-RUN ln -sf python3 /usr/bin/python
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Copy package files
 COPY package*.json ./
@@ -79,16 +79,17 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 weatheruser
 
 # Install runtime dependencies (ffmpeg + canvas runtime libs)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    cairo \
-    jpeg \
-    pango \
-    giflib \
-    pixman \
-    pangomm \
-    libjpeg-turbo \
-    freetype
+    libcairo2 \
+    libjpeg62-turbo \
+    libpango-1.0-0 \
+    libgif7 \
+    libpixman-1-0 \
+    libpangocairo-1.0-0 \
+    libjpeg-turbo8 \
+    libfreetype6 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy built application
 COPY --from=build-backend --chown=weatheruser:nodejs /app/backend/dist ./backend/dist
