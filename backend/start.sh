@@ -6,7 +6,25 @@ set -e
 
 echo "Starting application..."
 echo "NODE_ENV: $NODE_ENV"
+echo "HOME: $HOME"
+echo "NPM_CONFIG_CACHE: $NPM_CONFIG_CACHE"
 echo "Current directory: $(pwd)"
+echo "User: $(whoami)"
+echo "User ID: $(id)"
+
+# Verify npm cache directory is accessible
+if [ -n "$NPM_CONFIG_CACHE" ]; then
+    echo "Verifying npm cache directory: $NPM_CONFIG_CACHE"
+    if [ -d "$NPM_CONFIG_CACHE" ]; then
+        echo "✅ NPM cache directory exists and is accessible"
+        ls -la "$NPM_CONFIG_CACHE"
+    else
+        echo "❌ NPM cache directory does not exist, creating it..."
+        mkdir -p "$NPM_CONFIG_CACHE"
+    fi
+else
+    echo "⚠️  NPM_CONFIG_CACHE not set"
+fi
 
 # Check if we're in production
 if [ "$NODE_ENV" = "production" ]; then

@@ -73,9 +73,9 @@ RUN npm --workspace frontend run build
 FROM base AS runner
 WORKDIR /app
 
-# Create non-root user
+# Create non-root user with proper home directory
 RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 weatheruser
+RUN adduser --system --uid 1001 --home /app --shell /bin/sh weatheruser
 
 # Install runtime dependencies (ffmpeg + canvas runtime libs)
 RUN apt-get update && apt-get install -y \
@@ -108,6 +108,10 @@ RUN mkdir -p /app/backend/dist && \
 # Create charts directory with proper permissions
 RUN mkdir -p /app/backend/files/charts && chown -R weatheruser:nodejs /app/backend/files
 
+# Configure npm to use proper directories
+RUN mkdir -p /app/.npm && chown -R weatheruser:nodejs /app/.npm
+RUN mkdir -p /app/.npm-global && chown -R weatheruser:nodejs /app/.npm-global
+
 # (No Mastra CLI output copied)
 
 # Copy production dependencies (hoisted workspaces install)
@@ -128,6 +132,11 @@ EXPOSE 3001
 # Ensure production environment
 ENV NODE_ENV=production
 ENV PORT=3001
+
+# Configure npm to use proper directories
+ENV NPM_CONFIG_CACHE=/app/.npm
+ENV NPM_CONFIG_PREFIX=/app/.npm-global
+ENV HOME=/app
 
 WORKDIR /app/backend
 

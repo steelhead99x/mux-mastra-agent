@@ -52,12 +52,26 @@ RUN mkdir -p /app/backend/dist && \
         rm -rf /app/backend/dist/backend; \
     fi
 
+# Create non-root user with proper home directory
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 --home /app --shell /bin/sh weatheruser
+
 # Create charts directory and set permissions
-RUN mkdir -p /app/backend/files/charts
+RUN mkdir -p /app/backend/files/charts && chown -R weatheruser:nodejs /app/backend/files
+
+# Configure npm to use proper directories
+RUN mkdir -p /app/.npm && chown -R weatheruser:nodejs /app/.npm
+RUN mkdir -p /app/.npm-global && chown -R weatheruser:nodejs /app/.npm-global
 
 # Copy and setup startup script
 COPY backend/start.sh ./backend/start.sh
-RUN chmod +x /app/backend/start.sh
+RUN chmod +x /app/backend/start.sh && chown weatheruser:nodejs /app/backend/start.sh
+
+# Set ownership of the entire app directory
+RUN chown -R weatheruser:nodejs /app
+
+# Switch to non-root user
+USER weatheruser
 
 # Set working directory to backend
 WORKDIR /app/backend
@@ -68,6 +82,11 @@ EXPOSE 3001
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=3001
+
+# Configure npm to use proper directories
+ENV NPM_CONFIG_CACHE=/app/.npm
+ENV NPM_CONFIG_PREFIX=/app/.npm-global
+ENV HOME=/app
 
 # Start the application using the startup script
 CMD ["./start.sh"]
