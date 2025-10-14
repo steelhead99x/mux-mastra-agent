@@ -23,12 +23,15 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 COPY shared/package*.json ./shared/
+COPY scripts/ ./scripts/
+COPY .npmrc ./
 
 # Install production dependencies for all workspaces using a single lockfile
 # Force update MCP SDK to prevent version conflicts
 # Skip optional dependencies that might cause issues
-RUN npm ci --workspaces --omit=dev --no-optional && \
-    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
+RUN npm ci --workspaces --omit=dev --no-optional --ignore-scripts && \
+    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts && \
+    ./scripts/cleanup-native-modules.sh
 
 # Build the application
 FROM base AS builder-deps
@@ -42,11 +45,13 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 COPY shared/package*.json ./shared/
+COPY scripts/ ./scripts/
+COPY .npmrc ./
 
 # Install all dependencies for all workspaces (including dev)
 # Force update MCP SDK to prevent version conflicts during build
-RUN npm ci --workspaces --include=dev && \
-    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
+RUN npm ci --workspaces --include=dev --no-optional --ignore-scripts && \
+    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts
 
 # Build shared package
 FROM builder-deps AS build-shared
@@ -143,6 +148,9 @@ ENV HOME=/app
 ENV SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true
 ENV SKIP_NODE_SASS_TESTS=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV npm_config_build_from_source=false
+ENV npm_config_cache_min=86400
+ENV npm_config_prefer_offline=true
 
 WORKDIR /app/backend
 

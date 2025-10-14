@@ -32,9 +32,11 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 COPY frontend/package*.json ./frontend/
 COPY shared/package*.json ./shared/
+COPY scripts/ ./scripts/
+COPY .npmrc ./
 
 # Install dependencies
-RUN npm ci --no-optional
+RUN npm ci --no-optional --ignore-scripts && ./scripts/cleanup-native-modules.sh
 
 # Copy source code
 COPY . .
@@ -92,6 +94,9 @@ ENV HOME=/app
 ENV SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true
 ENV SKIP_NODE_SASS_TESTS=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV npm_config_build_from_source=false
+ENV npm_config_cache_min=86400
+ENV npm_config_prefer_offline=true
 
 # Start the application using the startup script
 CMD ["./start.sh"]

@@ -76,5 +76,8 @@
   },
   "overrides": {
     "inotify": "npm:chokidar@^3.6.0"
+  },
+  "resolutions": {
+    "inotify": "npm:chokidar@^3.6.0"
   }
 }
