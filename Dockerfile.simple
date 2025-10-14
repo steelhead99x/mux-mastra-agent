@@ -42,10 +42,10 @@ RUN npm ci --no-optional --ignore-scripts && ./scripts/cleanup-native-modules.sh
 COPY . .
 
 # Build shared package first
-RUN cd shared && npm run build
+RUN cd shared && npm run build && chown -R weatheruser:nodejs /app/shared/dist
 
 # Build the application
-RUN npm run build
+RUN npm run build && chown -R weatheruser:nodejs /app/backend/dist && chown -R weatheruser:nodejs /app/backend/.mastra
 
 # Fix the dist structure - move the nested files to the correct location
 RUN mkdir -p /app/backend/dist && \
@@ -74,6 +74,9 @@ RUN chown -R weatheruser:nodejs /app
 
 # Switch to non-root user
 USER weatheruser
+
+# Ensure the working directory has proper permissions
+RUN chown -R weatheruser:nodejs /app/backend || true
 
 # Set working directory to backend
 WORKDIR /app/backend

@@ -14,7 +14,7 @@
     "build": "NODE_OPTIONS=--max-old-space-size=2048 npm run compile && npm run post-build-env",
     "build:test": "npm run test && NODE_OPTIONS=--max-old-space-size=2048 npm run compile && npm run post-build-env",
     "compile": "NODE_OPTIONS=--max-old-space-size=2048 tsc --build --verbose",
-    "clean": "rm -rf dist .mastra",
+    "clean": "rm -rf dist .mastra || echo 'Warning: Could not clean some directories'",
     "prebuild": "npm run clean && npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",

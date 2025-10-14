@@ -57,21 +57,25 @@ RUN npm ci --workspaces --include=dev --no-optional --ignore-scripts && \
 FROM builder-deps AS build-shared
 WORKDIR /app
 COPY shared ./shared
-RUN npm --workspace shared run build
+RUN npm --workspace shared run build && \
+    chown -R weatheruser:nodejs /app/shared/dist
 
 # Build backend (depends on shared sources for TS paths)
 FROM builder-deps AS build-backend
 WORKDIR /app
 COPY backend ./backend
 COPY shared ./shared
-RUN npm --workspace backend run build
+RUN npm --workspace backend run build && \
+    chown -R weatheruser:nodejs /app/backend/dist && \
+    chown -R weatheruser:nodejs /app/backend/.mastra
 
 # Build frontend (depends on shared sources for TS paths)
 FROM builder-deps AS build-frontend
 WORKDIR /app
 COPY frontend ./frontend
 COPY shared ./shared
-RUN npm --workspace frontend run build
+RUN npm --workspace frontend run build && \
+    chown -R weatheruser:nodejs /app/frontend/dist
 
 # (Optional) Mastra CLI build is skipped in CI to avoid failures; runtime can use dist
 
@@ -132,6 +136,9 @@ COPY --chown=weatheruser:nodejs backend/start.sh ./backend/start.sh
 RUN chmod +x /app/backend/start.sh
 
 USER weatheruser
+
+# Ensure the working directory has proper permissions
+RUN chown -R weatheruser:nodejs /app/backend || true
 
 EXPOSE 3001
 
