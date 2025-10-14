@@ -42,10 +42,10 @@ RUN npm ci --no-optional --ignore-scripts && ./scripts/cleanup-native-modules.sh
 COPY . .
 
 # Build shared package first
-RUN cd shared && npm run build && chown -R weatheruser:nodejs /app/shared/dist
+RUN cd shared && npm run build
 
 # Build the application
-RUN npm run build && chown -R weatheruser:nodejs /app/backend/dist && chown -R weatheruser:nodejs /app/backend/.mastra
+RUN npm run build
 
 # Fix the dist structure - move the nested files to the correct location
 RUN mkdir -p /app/backend/dist && \
@@ -59,15 +59,15 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 --home /app --shell /bin/sh weatheruser
 
 # Create charts directory and set permissions
-RUN mkdir -p /app/backend/files/charts && chown -R weatheruser:nodejs /app/backend/files
+RUN mkdir -p /app/backend/files/charts
 
 # Configure npm to use proper directories
-RUN mkdir -p /app/.npm && chown -R weatheruser:nodejs /app/.npm
-RUN mkdir -p /app/.npm-global && chown -R weatheruser:nodejs /app/.npm-global
+RUN mkdir -p /app/.npm
+RUN mkdir -p /app/.npm-global
 
 # Copy and setup startup script
 COPY backend/start.sh ./backend/start.sh
-RUN chmod +x /app/backend/start.sh && chown weatheruser:nodejs /app/backend/start.sh
+RUN chmod +x /app/backend/start.sh
 
 # Set ownership of the entire app directory
 RUN chown -R weatheruser:nodejs /app
@@ -76,7 +76,7 @@ RUN chown -R weatheruser:nodejs /app
 USER weatheruser
 
 # Ensure the working directory has proper permissions
-RUN chown -R weatheruser:nodejs /app/backend || true
+RUN chown -R weatheruser:nodejs /app/backend
 
 # Set working directory to backend
 WORKDIR /app/backend
