@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     libpango1.0-dev \
     libgif-dev \
     build-essential \
-    libjpeg-turbo8-dev \
     libfreetype6-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -87,7 +86,6 @@ RUN apt-get update && apt-get install -y \
     libgif7 \
     libpixman-1-0 \
     libpangocairo-1.0-0 \
-    libjpeg-turbo8 \
     libfreetype6 \
     && rm -rf /var/lib/apt/lists/*
 
