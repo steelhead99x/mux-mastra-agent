@@ -26,7 +26,8 @@ COPY shared/package*.json ./shared/
 
 # Install production dependencies for all workspaces using a single lockfile
 # Force update MCP SDK to prevent version conflicts
-RUN npm ci --workspaces --omit=dev && \
+# Skip optional dependencies that might cause issues
+RUN npm ci --workspaces --omit=dev --no-optional && \
     npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
 
 # Build the application
@@ -137,6 +138,11 @@ ENV PORT=3001
 ENV NPM_CONFIG_CACHE=/app/.npm
 ENV NPM_CONFIG_PREFIX=/app/.npm-global
 ENV HOME=/app
+
+# Skip problematic native modules
+ENV SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true
+ENV SKIP_NODE_SASS_TESTS=true
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /app/backend
 

@@ -16,7 +16,7 @@ if [ "$DROPLET_IP" = "YOUR_DROPLET_IP" ]; then
     exit 1
 fi
 
-echo "📦 Building Docker image with npm permission fixes..."
+echo "📦 Building Docker image with Node.js 24 and modern file watching..."
 docker build -t $IMAGE_NAME -f Dockerfile.simple .
 
 echo "📤 Transferring image to droplet..."

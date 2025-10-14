@@ -51,6 +51,7 @@
     "ai": "^5.0.0",
     "canvas": "^3.2.0",
     "chart.js": "^4.5.0",
+    "chokidar": "^3.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^5.1.0",
@@ -72,5 +73,8 @@
     "supertest": "^7.1.4",
     "typescript": "^5.6.3",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "inotify": "npm:chokidar@^3.6.0"
   }
 }
