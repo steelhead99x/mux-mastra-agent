@@ -224,6 +224,296 @@ function analyzeMetrics(data: any): {
 }
 
 /**
+ * Fetch streaming performance metrics (HLS/DASH specific)
+ */
+export const muxStreamingPerformanceTool = createTool({
+    id: "mux-streaming-performance",
+    description: "Fetch HLS/DASH streaming performance metrics including video startup time, rebuffering, bitrate adaptation, and segment delivery. Returns real data from Mux for streaming quality analysis.",
+    inputSchema: z.object({
+        timeframe: z.union([
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end]")
+        ]).optional(),
+        filters: z.array(z.string()).optional(),
+    }),
+    execute: async ({ context }) => {
+        let { timeframe, filters } = context as { timeframe?: any; filters?: string[] };
+        
+        try {
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe)) {
+                    startTime = timeframe[0];
+                    endTime = timeframe[1];
+                }
+            }
+            
+            const [start, end] = getValidTimeframe(startTime, endTime);
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
+            
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
+            }
+            
+            const tools = await muxDataMcpClient.getTools();
+            
+            // Fetch streaming-specific metrics
+            const metricsToFetch = [
+                'video_startup_time',
+                'rebuffer_percentage',
+                'rebuffer_duration',
+                'rebuffer_frequency',
+                'rebuffer_count'
+            ];
+            
+            const results: any = {};
+            
+            for (const metricId of metricsToFetch) {
+                try {
+                    let metricData;
+                    if (tools['get_overall_values']) {
+                        metricData = await tools['get_overall_values'].execute({
+                            context: {
+                                METRIC_ID: metricId,
+                                timeframe: [start, end],
+                                ...(filters && filters.length > 0 && { filters })
+                            }
+                        });
+                    } else if (tools['invoke_api_endpoint']) {
+                        metricData = await tools['invoke_api_endpoint'].execute({
+                            context: {
+                                endpoint_name: 'get_overall_values_data_metrics',
+                                args: {
+                                    METRIC_ID: metricId,
+                                    timeframe: [start, end],
+                                    ...(filters && filters.length > 0 && { filters })
+                                }
+                            }
+                        });
+                    }
+                    
+                    if (metricData && metricData.data) {
+                        results[metricId] = metricData.data;
+                    }
+                } catch (error) {
+                    console.warn(`[streaming-performance] Failed to fetch ${metricId}:`, error);
+                }
+            }
+            
+            if (Object.keys(results).length === 0) {
+                throw new Error('Unable to retrieve streaming performance metrics from Mux API');
+            }
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                streamingMetrics: results,
+                category: 'streaming_performance'
+            };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[streaming-performance] Error:', sanitizedError);
+            return {
+                success: false,
+                error: sanitizedError,
+                message: 'Failed to fetch streaming performance metrics'
+            };
+        }
+    },
+});
+
+/**
+ * Fetch CDN and delivery metrics
+ */
+export const muxCDNMetricsTool = createTool({
+    id: "mux-cdn-metrics",
+    description: "Fetch CDN performance and content delivery metrics including geographic distribution, ISP performance, and delivery efficiency for HLS/DASH optimization.",
+    inputSchema: z.object({
+        timeframe: z.union([
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end]")
+        ]).optional(),
+    }),
+    execute: async ({ context }) => {
+        let { timeframe } = context as { timeframe?: any };
+        
+        try {
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe)) {
+                    startTime = timeframe[0];
+                    endTime = timeframe[1];
+                }
+            }
+            
+            const [start, end] = getValidTimeframe(startTime, endTime);
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
+            
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
+            }
+            
+            const tools = await muxDataMcpClient.getTools();
+            
+            // Fetch CDN-related breakdowns
+            const dimensions = ['country', 'asn', 'cdn'];
+            const cdnData: any = {};
+            
+            for (const dimension of dimensions) {
+                try {
+                    let breakdownData;
+                    if (tools['list_breakdown_values']) {
+                        breakdownData = await tools['list_breakdown_values'].execute({
+                            context: {
+                                METRIC_ID: 'video_startup_time',
+                                timeframe: [start, end],
+                                group_by: dimension,
+                                order_by: 'views',
+                                order_direction: 'desc',
+                                limit: 10
+                            }
+                        });
+                    }
+                    
+                    if (breakdownData && breakdownData.data) {
+                        cdnData[dimension] = breakdownData.data;
+                    }
+                } catch (error) {
+                    console.warn(`[cdn-metrics] Failed to fetch ${dimension} breakdown:`, error);
+                }
+            }
+            
+            if (Object.keys(cdnData).length === 0) {
+                throw new Error('Unable to retrieve CDN metrics from Mux API');
+            }
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                cdnMetrics: cdnData,
+                category: 'cdn_optimization'
+            };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[cdn-metrics] Error:', sanitizedError);
+            return {
+                success: false,
+                error: sanitizedError,
+                message: 'Failed to fetch CDN metrics'
+            };
+        }
+    },
+});
+
+/**
+ * Fetch user engagement metrics
+ */
+export const muxEngagementMetricsTool = createTool({
+    id: "mux-engagement-metrics",
+    description: "Fetch user engagement analytics including watch time, completion rates, quality of experience scores, and viewer behavior patterns.",
+    inputSchema: z.object({
+        timeframe: z.union([
+            z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
+            z.array(z.number()).length(2).describe("Unix timestamp array [start, end]")
+        ]).optional(),
+    }),
+    execute: async ({ context }) => {
+        let { timeframe } = context as { timeframe?: any };
+        
+        try {
+            let startTime: number | undefined;
+            let endTime: number | undefined;
+            
+            if (timeframe) {
+                if (typeof timeframe === 'string') {
+                    [startTime, endTime] = parseRelativeTimeframe(timeframe);
+                } else if (Array.isArray(timeframe)) {
+                    startTime = timeframe[0];
+                    endTime = timeframe[1];
+                }
+            }
+            
+            const [start, end] = getValidTimeframe(startTime, endTime);
+            const { muxDataMcpClient } = await import('../mcp/mux-data-client.js');
+            
+            if (!muxDataMcpClient.isConnected()) {
+                await muxDataMcpClient.connect();
+            }
+            
+            const tools = await muxDataMcpClient.getTools();
+            
+            // Fetch engagement-specific metrics
+            const engagementMetrics = [
+                'viewer_experience_score',
+                'playback_failure_score',
+                'exits_before_video_start'
+            ];
+            
+            const results: any = {};
+            
+            for (const metricId of engagementMetrics) {
+                try {
+                    let metricData;
+                    if (tools['get_overall_values']) {
+                        metricData = await tools['get_overall_values'].execute({
+                            context: {
+                                METRIC_ID: metricId,
+                                timeframe: [start, end]
+                            }
+                        });
+                    }
+                    
+                    if (metricData && metricData.data) {
+                        results[metricId] = metricData.data;
+                    }
+                } catch (error) {
+                    console.warn(`[engagement-metrics] Failed to fetch ${metricId}:`, error);
+                }
+            }
+            
+            if (Object.keys(results).length === 0) {
+                throw new Error('Unable to retrieve engagement metrics from Mux API');
+            }
+            
+            return {
+                success: true,
+                timeRange: {
+                    start: new Date(start * 1000).toISOString(),
+                    end: new Date(end * 1000).toISOString(),
+                },
+                engagementMetrics: results,
+                category: 'user_engagement'
+            };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[engagement-metrics] Error:', sanitizedError);
+            return {
+                success: false,
+                error: sanitizedError,
+                message: 'Failed to fetch engagement metrics'
+            };
+        }
+    },
+});
+
+/**
  * Mux Analytics Tool - Fetch overall metrics using MCP
  */
 export const muxAnalyticsTool = createTool({
@@ -914,7 +1204,7 @@ export function formatAnalyticsSummary(
     const parts: string[] = [];
     
     // Conversational header with natural pause
-    parts.push(`Hello! Here's your Mux Video Streaming Analytics Report.`);
+    parts.push(`Mux Video Streaming Analytics Report.`);
     parts.push('');  // Empty line creates natural pause in TTS
     
     const startDate = new Date(timeRange.start);
@@ -926,26 +1216,26 @@ export function formatAnalyticsSummary(
     parts.push('');
     
     // Health Score - more conversational with natural pause
-    parts.push(`Let's start with your overall health score, which is ${formatNumberForSpeech(analysis.healthScore)} out of 100.`);
+    parts.push(`Overall health score: ${formatNumberForSpeech(analysis.healthScore)} out of 100.`);
     parts.push(analysis.summary);
     parts.push('');
     
     // Key Metrics - conversational style with clearer transitions
-    parts.push('Now, let me walk you through the key performance indicators.');
+    parts.push('Key performance indicators:');
     parts.push('');
     
     if (metrics.total_views !== undefined) {
         const views = metrics.total_views;
         const viewsText = views > 10 ? views.toLocaleString('en-US') : formatNumberForSpeech(views);
         const viewWord = views === 1 ? 'view' : 'views';
-        parts.push(`First, you had a total of ${viewsText} ${viewWord} during this period.`);
+        parts.push(`Total ${viewWord}: ${viewsText}.`);
     }
     
     if (metrics.total_playing_time_seconds !== undefined) {
         const hours = Math.floor(metrics.total_playing_time_seconds / 3600);
         const minutes = Math.floor((metrics.total_playing_time_seconds % 3600) / 60);
         const durationText = formatDurationForSpeech(hours, minutes);
-        parts.push(`Your viewers watched for a combined ${durationText}.`);
+        parts.push(`Total watch time: ${durationText}.`);
     }
     
     if (metrics.average_startup_time_ms !== undefined) {
@@ -953,28 +1243,28 @@ export function formatAnalyticsSummary(
         const secondsRounded = startupSeconds.toFixed(1);
         // Pronounce decimal naturally
         const secondsText = secondsRounded.replace('.', ' point ');
-        parts.push(`Videos took an average of ${secondsText} seconds to start playing.`);
+        parts.push(`Average startup time: ${secondsText} seconds.`);
     }
     
     if (metrics.total_rebuffer_percentage !== undefined) {
         const rebufferPct = metrics.total_rebuffer_percentage.toFixed(1).replace('.', ' point ');
         if (metrics.total_rebuffer_percentage < 2) {
-            parts.push(`Rebuffering was minimal at just ${rebufferPct} percent. That's excellent!`);
+            parts.push(`Rebuffering: ${rebufferPct} percent (excellent).`);
         } else if (metrics.total_rebuffer_percentage < 5) {
-            parts.push(`The rebuffering rate was ${rebufferPct} percent, which is within acceptable range.`);
+            parts.push(`Rebuffering: ${rebufferPct} percent (acceptable).`);
         } else {
-            parts.push(`The rebuffering rate was ${rebufferPct} percent, which needs attention.`);
+            parts.push(`Rebuffering: ${rebufferPct} percent (needs attention).`);
         }
     }
     
     if (metrics.total_error_percentage !== undefined) {
         const errorPct = metrics.total_error_percentage.toFixed(1).replace('.', ' point ');
         if (metrics.total_error_percentage < 1) {
-            parts.push(`Error rate was excellent at just ${errorPct} percent.`);
+            parts.push(`Error rate: ${errorPct} percent (excellent).`);
         } else if (metrics.total_error_percentage < 3) {
-            parts.push(`Error rate was ${errorPct} percent. That's acceptable, but could be improved.`);
+            parts.push(`Error rate: ${errorPct} percent (acceptable, could improve).`);
         } else {
-            parts.push(`Error rate was ${errorPct} percent, which definitely needs investigation.`);
+            parts.push(`Error rate: ${errorPct} percent (investigate).`);
         }
     }
     parts.push('');
@@ -983,16 +1273,12 @@ export function formatAnalyticsSummary(
     if (analysis.issues.length > 0) {
         parts.push('');  // Natural pause before issues section
         const issueCount = formatNumberForSpeech(analysis.issues.length);
-        if (analysis.issues.length === 1) {
-            parts.push('I identified one issue that needs your attention.');
-        } else {
-            parts.push(`I found ${issueCount} issues that need your attention.`);
-        }
+        parts.push(`${issueCount === 'one' ? 'One' : issueCount} issue${analysis.issues.length === 1 ? '' : 's'} identified:`);
         parts.push('');
         
         analysis.issues.forEach((issue, i) => {
             const issueNum = formatNumberForSpeech(i + 1);
-            parts.push(`Issue ${issueNum}: ${issue}`);
+            parts.push(`Issue ${issueNum}: ${issue}.`);
         });
         parts.push('');
     }
@@ -1001,16 +1287,12 @@ export function formatAnalyticsSummary(
     if (analysis.recommendations.length > 0) {
         parts.push('');  // Natural pause before recommendations
         const recCount = formatNumberForSpeech(analysis.recommendations.length);
-        if (analysis.recommendations.length === 1) {
-            parts.push('Here is my recommendation to improve performance.');
-        } else {
-            parts.push(`I have ${recCount} recommendations to improve your streaming performance.`);
-        }
+        parts.push(`${recCount === 'one' ? 'One' : recCount} recommendation${analysis.recommendations.length === 1 ? '' : 's'}:`);
         parts.push('');
         
         analysis.recommendations.forEach((rec, i) => {
             const recNum = formatNumberForSpeech(i + 1);
-            parts.push(`Recommendation ${recNum}: ${rec}`);
+            parts.push(`Recommendation ${recNum}: ${rec}.`);
         });
         parts.push('');
     }
@@ -1018,28 +1300,29 @@ export function formatAnalyticsSummary(
     // Closing summary - conversational tone with natural pauses
     parts.push('');  // Natural pause before conclusion
     if (analysis.healthScore >= 90) {
-        parts.push('Overall, your streaming infrastructure is performing exceptionally well! Keep up the great work, and continue monitoring for any changes in traffic patterns or new device types.');
+        parts.push('Overall assessment: excellent performance. Maintain current configuration and monitor.');
     } else if (analysis.healthScore >= 75) {
-        parts.push('Overall, your performance is good, with just some areas for optimization. I recommend addressing the items above to improve your user experience.');
+        parts.push('Overall assessment: good. Address the noted optimizations.');
     } else if (analysis.healthScore >= 50) {
-        parts.push('Overall, your performance needs some improvement. I suggest focusing on the critical issues first, particularly those affecting playback reliability.');
+        parts.push('Overall assessment: fair. Prioritize reliability fixes.');
     } else {
-        parts.push('I need to be honest with you. This requires critical attention. Multiple performance issues were detected that are significantly impacting user experience. Please prioritize immediate remediation of these issues.');
+        parts.push('Overall assessment: critical. Prioritize remediation immediately.');
     }
     
     parts.push('');
-    parts.push('That concludes your analytics report. Thank you for listening!');
+    parts.push('End of report.');
     
     const summary = parts.join('\n');
     
-    // Ensure under 1000 words
-    const wordCount = summary.split(/\s+/).length;
-    if (wordCount > 1000) {
-        // Truncate to ~950 words to be safe
-        const words = summary.split(/\s+/).slice(0, 950);
-        return words.join(' ') + '. This summary has been truncated to stay under one thousand words. Thank you for listening.';
+    // Trim to a tighter target for ~1 minute delivery (default ~170 words)
+    const targetWords = Number(process.env.SPEECH_TARGET_WORDS || 170);
+    const words = summary.split(/\s+/);
+    if (words.length <= targetWords) return summary;
+    const sliced = words.slice(0, Math.min(200, targetWords + 10)).join(' ');
+    const lastPeriod = sliced.lastIndexOf('. ');
+    if (lastPeriod > 0 && sliced.length - lastPeriod > 20) {
+        return sliced.slice(0, lastPeriod + 1).trim();
     }
-    
-    return summary;
+    return (sliced.endsWith('.') ? sliced : sliced + '...').trim();
 }
 

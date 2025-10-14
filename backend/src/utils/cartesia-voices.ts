@@ -1,6 +1,12 @@
 /**
  * Cartesia Voice Management Utility
  * Handles fetching and randomizing Cartesia TTS voices
+ * 
+ * PERFORMANCE OPTIMIZATIONS:
+ * - Voice caching with 1-hour TTL to minimize API calls
+ * - Pre-selected voice stored in memory for instant access
+ * - Pre-warming at startup eliminates first-request latency
+ * - Synchronous voice check for zero-overhead validation
  */
 
 import { CartesiaClient } from '@cartesia/cartesia-js';
@@ -14,6 +20,7 @@ export interface CartesiaVoice {
 
 let cachedVoices: CartesiaVoice[] | null = null;
 let cacheTimestamp: number | null = null;
+let selectedVoice: CartesiaVoice | null = null; // Pre-selected voice for faster responses
 const CACHE_DURATION = 1000 * 60 * 60; // 1 hour
 
 /**
@@ -87,11 +94,60 @@ export async function getRandomUSEnglishVoice(apiKey: string): Promise<CartesiaV
   
   // Select a random voice
   const randomIndex = Math.floor(Math.random() * voices.length);
-  const selectedVoice = voices[randomIndex];
+  const voice = voices[randomIndex];
   
-  console.log(`🎤 Selected random voice: ${selectedVoice.name} (${selectedVoice.id})`);
+  console.log(`🎤 Selected random voice: ${voice.name} (${voice.id})`);
   
+  return voice;
+}
+
+/**
+ * Check if a voice is already selected (synchronous, zero overhead)
+ * Useful for optimization checks before async operations
+ */
+export function hasPreSelectedVoice(): boolean {
+  return selectedVoice !== null;
+}
+
+/**
+ * Get the pre-selected voice synchronously (returns null if not yet selected)
+ * Use this for hot paths where you need immediate access
+ */
+export function getPreSelectedVoiceSync(): CartesiaVoice | null {
   return selectedVoice;
+}
+
+/**
+ * Get pre-selected voice (fast, no API call needed)
+ * If no voice is pre-selected, falls back to random selection
+ * OPTIMIZED: Returns immediately if voice is already cached
+ */
+export async function getPreSelectedVoice(apiKey: string): Promise<CartesiaVoice> {
+  if (selectedVoice) {
+    // Fast path: voice already selected, return immediately (no API call)
+    return selectedVoice;
+  }
+  
+  // First time - select and cache (only happens once at startup)
+  console.log('⚡ First-time voice selection...');
+  selectedVoice = await getRandomUSEnglishVoice(apiKey);
+  console.log(`✅ Voice cached for future use: ${selectedVoice.name}`);
+  return selectedVoice;
+}
+
+/**
+ * Pre-warm the voice selection at startup (non-blocking)
+ * This should be called when the agent initializes
+ */
+export async function prewarmVoiceSelection(apiKey: string): Promise<void> {
+  try {
+    console.log('🔥 Pre-warming voice selection...');
+    selectedVoice = await getRandomUSEnglishVoice(apiKey);
+    console.log(`✅ Voice pre-selected at startup: ${selectedVoice.name}`);
+  } catch (error) {
+    console.warn('⚠️ Failed to pre-warm voice selection:', error);
+    // Non-fatal - will fall back to on-demand selection
+  }
 }
 
 /**
@@ -100,6 +156,7 @@ export async function getRandomUSEnglishVoice(apiKey: string): Promise<CartesiaV
 export function clearVoiceCache(): void {
   cachedVoices = null;
   cacheTimestamp = null;
+  selectedVoice = null;
   console.log('🗑️ Voice cache cleared');
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, Suspense, lazy, useRef } from 'react'
+import { useEffect, useMemo, useState, Suspense, lazy, useRef, useCallback } from 'react'
 import { useMuxAnalytics } from '../contexts/MuxAnalyticsContext'
 
 // Lazy load MuxPlayer to reduce initial bundle size
@@ -58,6 +58,7 @@ export default function MuxSignedPlayer({
     }
   }, [])
 
+
   // Priority: context > props > query params
   const playbackId = useMemo(() => 
     currentVideo.playbackId || playbackIdProp || playbackID || playbackid || playbackIdFromQuery,
@@ -82,6 +83,47 @@ export default function MuxSignedPlayer({
     return undefined
   }, [providedAssetId, playbackId])
   
+  // Update browser URL when currentVideo changes from context (e.g., new audio report)
+  // This updates the URL for sharing but doesn't reload - the player updates via state
+  useEffect(() => {
+    if (!currentVideo.assetId && !currentVideo.playbackId) return // No video set in context
+    
+    const currentUrl = new URL(window.location.href)
+    const currentAssetIdParam = currentUrl.searchParams.get('assetId')
+    const currentPlaybackIdParam = currentUrl.searchParams.get('playbackId')
+    
+    // Only update URL if the context video is different from current URL params
+    const shouldUpdate = 
+      (currentVideo.assetId && currentVideo.assetId !== currentAssetIdParam) ||
+      (currentVideo.playbackId && currentVideo.playbackId !== currentPlaybackIdParam)
+    
+    if (shouldUpdate) {
+      console.log('[MuxSignedPlayer] Context video changed, updating URL without reload:', currentVideo)
+      const url = new URL(window.location.href)
+      
+      // Clear all video-related params
+      url.searchParams.delete('assetId')
+      url.searchParams.delete('assetID')
+      url.searchParams.delete('assetid')
+      url.searchParams.delete('asset_id')
+      url.searchParams.delete('playbackId')
+      url.searchParams.delete('playbackID')
+      url.searchParams.delete('playbackid')
+      url.searchParams.delete('playback_id')
+      
+      // Set the new video params
+      if (currentVideo.assetId) {
+        url.searchParams.set('assetId', currentVideo.assetId)
+      } else if (currentVideo.playbackId) {
+        url.searchParams.set('playbackId', currentVideo.playbackId)
+      }
+      
+      // Update URL without reload - player will update via context change
+      window.history.pushState({}, '', url.toString())
+    }
+  }, [currentVideo.assetId, currentVideo.playbackId])
+  
+  
   const keyServerUrl = import.meta.env.VITE_MUX_KEY_SERVER_URL || 'https://www.streamingportfolio.com/api/tokens'
 
   const [state, setState] = useState<
@@ -89,6 +131,18 @@ export default function MuxSignedPlayer({
     | { status: 'ready'; playbackId: string; token: string; thumbnailToken?: string; width?: number; height?: number }
     | { status: 'error'; message: string }
   >({ status: 'idle' })
+
+  const [copySuccess, setCopySuccess] = useState(false)
+
+  const copyCurrentUrl = useCallback(() => {
+    const url = window.location.href
+    navigator.clipboard.writeText(url).then(() => {
+      setCopySuccess(true)
+      setTimeout(() => setCopySuccess(false), 2000)
+    }).catch(err => {
+      console.error('Failed to copy URL:', err)
+    })
+  }, [])
 
   const body = useMemo(() => {
     // Prefer playbackId over assetId; only include one to avoid ambiguity
@@ -284,15 +338,18 @@ export default function MuxSignedPlayer({
     )
   }
 
-  if (state.status === 'loading' || state.status === 'idle') {
+  // Loading state while fetching tokens
+  if (state.status === 'loading') {
     return (
       <div className={className}>
         <div className="w-full aspect-video rounded-xl border grid place-items-center text-sm" style={{ background: 'var(--overlay)', borderColor: 'var(--border)', color: 'var(--fg-muted)' }}>
           <div className="flex flex-col items-center gap-3">
             <div className="animate-spin w-6 h-6 border-2 border-current border-t-transparent rounded-full"></div>
             <div className="text-center">
-              <div className="font-medium">Loading audio player...</div>
-              <div className="text-xs opacity-75">Preparing your audio content</div>
+              <div className="font-medium">⏳ Loading audio...</div>
+              <div className="text-xs opacity-75">Mux Video is processing your audio report</div>
+              <div className="text-xs mt-2 opacity-50">This usually takes 10-30 seconds</div>
+              <div className="text-xs mt-1 opacity-50">The player will load automatically when ready</div>
             </div>
           </div>
         </div>
@@ -412,6 +469,36 @@ export default function MuxSignedPlayer({
           }}
         />
       </Suspense>
+      
+      {/* Copy URL Button */}
+      <div className="mt-3 flex justify-center">
+        <button
+          onClick={copyCurrentUrl}
+          className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors"
+          style={{
+            background: copySuccess ? 'var(--success)' : 'var(--overlay)',
+            color: copySuccess ? 'white' : 'var(--fg)',
+            border: `1px solid ${copySuccess ? 'var(--success)' : 'var(--border)'}`,
+          }}
+        >
+          {copySuccess ? (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              URL Copied!
+            </>
+          ) : (
+            <>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy Player URL
+            </>
+          )}
+        </button>
+      </div>
     </div>
   )
 }

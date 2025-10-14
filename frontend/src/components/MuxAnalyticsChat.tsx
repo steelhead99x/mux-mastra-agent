@@ -79,6 +79,7 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
       const shouldUpdateByAsset = !!isValidAssetId && assetId !== lastAppliedAssetId
 
       if (shouldUpdateByPlayback || shouldUpdateByAsset) {
+        console.log('[MessageComponent] Updating video player with:', { assetId, playbackId })
         setCurrentVideo({
           assetId: isValidAssetId ? assetId || undefined : undefined,
           playbackId: playbackId || undefined
@@ -425,6 +426,12 @@ export default function MuxAnalyticsChat() {
     const trimmed = input.trim()
     if (!trimmed || !agent) return
 
+    // Stop voice recording if active before sending message
+    if (isListening) {
+      console.log('[MuxAnalyticsChat] Stopping voice recording before sending message')
+      stopListening()
+    }
+
     setHasAssistantResponded(true)
 
     const userMsg: Message = {
@@ -545,7 +552,7 @@ export default function MuxAnalyticsChat() {
       setIsLoading(false)
       setIsStreaming(false)
     }
-  }, [input, agent, hasAssistantResponded])
+  }, [input, agent, hasAssistantResponded, isListening, stopListening])
 
   // Handle streaming updates
   useEffect(() => {

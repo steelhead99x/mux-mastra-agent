@@ -17,11 +17,13 @@ import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { promises as fs } from 'fs';
 import { resolve, dirname, join } from 'path';
+// Basic memory imports for conversation context
 import { Memory } from "@mastra/memory";
-import { LibSQLStore, LibSQLVector } from "@mastra/libsql";
-import { fastembed } from "@mastra/fastembed";
-import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary } from '../tools/mux-analytics.js';
+import { LibSQLStore } from "@mastra/libsql";
+import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary, muxStreamingPerformanceTool, muxCDNMetricsTool, muxEngagementMetricsTool } from '../tools/mux-analytics.js';
 import { muxMcpClient as uploadClient } from '../mcp/mux-upload-client.js';
+import { CartesiaClient } from '@cartesia/cartesia-js';
+import { getPreSelectedVoice } from '../utils/cartesia-voices.js';
 
 // Utility function to sanitize API keys from error messages
 function sanitizeApiKey(message: string): string {
@@ -50,42 +52,229 @@ function validateApiKey(key: string | undefined, keyName: string): boolean {
     return true;
 }
 
-import { CartesiaClient } from '@cartesia/cartesia-js';
-import { getRandomUSEnglishVoice } from '../utils/cartesia-voices.js';
+// Helper function to convert number to ordinal word
+function numberToOrdinal(n: number): string {
+    const ordinals: Record<number, string> = {
+        1: 'first', 2: 'second', 3: 'third', 4: 'fourth', 5: 'fifth',
+        6: 'sixth', 7: 'seventh', 8: 'eighth', 9: 'ninth', 10: 'tenth',
+        11: 'eleventh', 12: 'twelfth', 13: 'thirteenth', 14: 'fourteenth', 15: 'fifteenth',
+        16: 'sixteenth', 17: 'seventeenth', 18: 'eighteenth', 19: 'nineteenth', 20: 'twentieth',
+        21: 'twenty-first', 22: 'twenty-second', 23: 'twenty-third', 24: 'twenty-fourth', 25: 'twenty-fifth',
+        26: 'twenty-sixth', 27: 'twenty-seventh', 28: 'twenty-eighth', 29: 'twenty-ninth', 30: 'thirtieth',
+        31: 'thirty-first'
+    };
+    return ordinals[n] || `${n}th`;
+}
 
-// Generate TTS with Cartesia - Enhanced for natural-sounding speech with randomized voices
+// Helper function to convert year to natural speech
+function yearToNaturalSpeech(year: number): string {
+    // For years 2000-2099, split as "twenty oh-one", "twenty twenty-five", etc.
+    if (year >= 2000 && year <= 2099) {
+        const lastTwo = year % 100;
+        if (lastTwo === 0) return 'two thousand';
+        if (lastTwo < 10) return `two thousand ${numberToOrdinal(lastTwo).replace('-', ' ')}`;
+        // For 2010-2099: "twenty ten", "twenty twenty-five"
+        const tens = Math.floor(lastTwo / 10);
+        const ones = lastTwo % 10;
+        const tensWord = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'][tens];
+        if (ones === 0) return `${tensWord}`;
+        return `${tensWord} ${numberToOrdinal(ones).replace('-', ' ')}`;
+    }
+    // For other years, use full number
+    return year.toString();
+}
+
+// Helper function to format dates naturally for speech
+function formatDateForSpeech(date: Date): string {
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December'];
+    const month = monthNames[date.getMonth()];
+    const day = numberToOrdinal(date.getDate());
+    const year = yearToNaturalSpeech(date.getFullYear());
+    return `${month} ${day} ${year}`;  // e.g., "October thirteenth twenty twenty-five"
+}
+
+// Generate TTS with Cartesia - Enhanced for clarity and natural pacing
+// OPTIMIZED: Fast, efficient text preprocessing with comprehensive special character removal
 async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
+    const startTime = Date.now();
+    
     const apiKey = process.env.CARTESIA_API_KEY;
     if (!validateApiKey(apiKey, 'CARTESIA_API_KEY')) {
         throw new Error('CARTESIA_API_KEY is required and must be valid');
     }
     
     // Initialize Cartesia client
-    const client = new CartesiaClient({ apiKey: apiKey });
-    
-    // Get a random US English voice for variety
-    let voiceId: string;
-    try {
-        const randomVoice = await getRandomUSEnglishVoice(apiKey!);
-        voiceId = randomVoice.id;
-        console.log(`🎤 Using randomized voice: ${randomVoice.name} (${randomVoice.id})`);
-    } catch (voiceError) {
-        // Fallback to default voice if random selection fails
-        console.warn('⚠️ Failed to get random voice, using default:', voiceError);
-        voiceId = process.env.CARTESIA_VOICE_ID || 'f9836c6e-a0bd-460e-9d3c-f7299fa60f94';
-    }
+    const client = new CartesiaClient({ apiKey });
     
     // Enhanced text preprocessing for natural speech flow
-    // Preserve intentional pauses while ensuring clean speech
+    // This removes all special characters, markdown, emojis, and formats metrics naturally
+    console.log(`[TTS-Preprocessing] Starting text preprocessing (length: ${text.length} chars)`);
+    const preprocessStart = Date.now();
+    
     const naturalText = text
-        .replace(/\n\n+/g, ', ')  // Convert paragraph breaks to commas for natural pauses
-        .replace(/\n/g, ' ')      // Single line breaks become spaces
-        .replace(/\.\.\./g, ',')  // Convert ellipsis to comma for better pronunciation
-        .replace(/\s+/g, ' ')     // Normalize whitespace
-        .replace(/([a-z])([A-Z])/g, '$1 $2')  // Add space between camelCase words
+        // Remove emojis and special unicode characters first
+        .replace(/[\u{1F600}-\u{1F64F}]/gu, '')    // Remove emoticons
+        .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')    // Remove symbols & pictographs
+        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')    // Remove transport & map symbols
+        .replace(/[\u{2600}-\u{26FF}]/gu, '')      // Remove misc symbols
+        .replace(/[\u{2700}-\u{27BF}]/gu, '')      // Remove dingbats
+        .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')    // Remove supplemental symbols
+        .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '')    // Remove extended symbols
+        .replace(/[\u{1FA70}-\u{1FAFF}]/gu, '')    // Remove symbols and pictographs extended
+        // Remove markdown formatting and special characters
+        .replace(/\*\*\*/g, '')                     // Remove triple asterisks
+        .replace(/\*\*/g, '')                       // Remove bold markers
+        .replace(/\*/g, '')                         // Remove asterisks
+        .replace(/__/g, '')                         // Remove double underscores
+        .replace(/_/g, ' ')                         // Replace underscores with spaces
+        .replace(/~~(.+?)~~/g, '$1')               // Remove strikethrough
+        .replace(/`{3}[\s\S]*?`{3}/g, '')          // Remove code blocks
+        .replace(/`(.+?)`/g, '$1')                 // Remove inline code markers
+        .replace(/#{1,6}\s/g, '')                  // Remove markdown headers
+        .replace(/^[>\-\+\*]\s/gm, '')             // Remove list markers
+        .replace(/^\d+\.\s+/gm, '')                // Remove numbered list markers (1. 2. 3.)
+        // Remove URLs and links
+        .replace(/https?:\/\/[^\s]+/g, '')         // Remove URLs
+        .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')  // Convert markdown links to text only
+        // Remove special characters that sound unnatural
+        .replace(/[\[\]{}()]/g, '')                // Remove brackets and parentheses
+        .replace(/[<>]/g, '')                      // Remove angle brackets
+        .replace(/[@#$%^&+=|\\\/]/g, '')           // Remove special symbols
+        .replace(/["']/g, '')                      // Remove quotes
+        .replace(/[;:]/g, ',')                     // Replace semicolons and colons with commas for natural pauses
+        // Handle dates more naturally - convert to conversational speech (do this BEFORE metrics to avoid conflicts)
+        // Format: YYYY-MM-DD (ISO format)
+        .replace(/(\d{4})-(\d{2})-(\d{2})/g, (_match, year, month, day) => {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            const monthName = monthNames[parseInt(month) - 1] || month;
+            const dayNum = parseInt(day);
+            return `${monthName} ${dayNum} ${year}`;
+        })
+        // Format: MM/DD/YYYY (US format)
+        .replace(/(\d{1,2})\/(\d{1,2})\/(\d{4})/g, (_match, month, day, year) => {
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                              'July', 'August', 'September', 'October', 'November', 'December'];
+            const monthName = monthNames[parseInt(month) - 1] || month;
+            const dayNum = parseInt(day);
+            return `${monthName} ${dayNum} ${year}`;
+        })
+        // Format: Month DD, YYYY (e.g., "October 13, 2025") - remove comma
+        .replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+(\d{4})/gi, 
+            (_match, month, day, year) => `${month} ${parseInt(day)} ${year}`)
+        // Format: Abbreviated months (e.g., "Oct 13, 2025")
+        .replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s+(\d{4})/gi, 
+            (_match, monthAbbr, day, year) => {
+                const monthMap: Record<string, string> = {
+                    'Jan': 'January', 'Feb': 'February', 'Mar': 'March', 'Apr': 'April',
+                    'May': 'May', 'Jun': 'June', 'Jul': 'July', 'Aug': 'August',
+                    'Sep': 'September', 'Oct': 'October', 'Nov': 'November', 'Dec': 'December'
+                };
+                const fullMonth = monthMap[monthAbbr.substring(0, 3)] || monthAbbr;
+                return `${fullMonth} ${parseInt(day)} ${year}`;
+            })
+        // Handle numbers and metrics more naturally
+        .replace(/(\d+)%/g, '$1 percent')          // "5%" → "5 percent"
+        .replace(/(\d+)ms\b/g, '$1 milliseconds')  // "100ms" → "100 milliseconds"
+        .replace(/(\d+)s\b/g, '$1 seconds')        // "5s" → "5 seconds"
+        .replace(/(\d+)MB\b/gi, '$1 megabytes')    // "10MB" → "10 megabytes"
+        .replace(/(\d+)GB\b/gi, '$1 gigabytes')    // "5GB" → "5 gigabytes"
+        .replace(/(\d+)kbps\b/gi, '$1 kilobits per second')  // "500kbps" → "500 kilobits per second"
+        .replace(/(\d+)Mbps\b/gi, '$1 megabits per second')  // "5Mbps" → "5 megabits per second"
+        .replace(/(\d+)p\b/g, '$1 P')              // "1080p" → "1080 P" (video resolution)
+        .replace(/(\d+)fps\b/gi, '$1 frames per second')  // "60fps" → "60 frames per second"
+        // Handle IDs and identifiers - MUST come before other replacements
+        .replace(/\bplayback-id\b/gi, 'playback I D')      // "playback-id" → "playback I D"
+        .replace(/\bplayback_id\b/gi, 'playback I D')      // "playback_id" → "playback I D"
+        .replace(/\bplayback id\b/gi, 'playback I D')      // "playback id" → "playback I D"
+        .replace(/\basset-id\b/gi, 'asset I D')            // "asset-id" → "asset I D"
+        .replace(/\basset_id\b/gi, 'asset I D')            // "asset_id" → "asset I D"
+        .replace(/\basset id\b/gi, 'asset I D')            // "asset id" → "asset I D"
+        .replace(/\bupload-id\b/gi, 'upload I D')          // "upload-id" → "upload I D"
+        .replace(/\bupload_id\b/gi, 'upload I D')          // "upload_id" → "upload I D"
+        .replace(/\bupload id\b/gi, 'upload I D')          // "upload id" → "upload I D"
+        .replace(/\bvideo-id\b/gi, 'video I D')            // "video-id" → "video I D"
+        .replace(/\bvideo_id\b/gi, 'video I D')            // "video_id" → "video I D"
+        .replace(/\bvideo id\b/gi, 'video I D')            // "video id" → "video I D"
+        .replace(/\b(the |an |a )?id\s*:/gi, 'I D,')       // "id:", "the id:", etc. → "I D,"
+        .replace(/\b(the |an |a )?id\b(?!\w)/gi, 'I D')    // standalone "id" → "I D" (but not in words like "video")
+        // Handle video-specific acronyms and technical terms more naturally
+        .replace(/\bI\.D\./gi, 'I D')               // "I.D." → "I D"
+        .replace(/\bURL\b/gi, 'U R L')              // "URL" → "U R L" (spelled out)
+        .replace(/\bURLs\b/gi, 'U R Ls')            // "URLs" → "U R Ls"
+        .replace(/\bAPI\b/g, 'A P I')               // "API" → "A P I"
+        .replace(/\bCDN\b/g, 'content delivery network')  // "CDN" → natural phrase
+        .replace(/\bHTTP\b/g, 'H T T P')            // "HTTP" → "H T T P"
+        .replace(/\bHTTPS\b/g, 'H T T P S')         // "HTTPS" → "H T T P S"
+        .replace(/\bHLS\b/g, 'H L S streaming')     // "HLS" → "H L S streaming" (more context)
+        .replace(/\bDASH\b/g, 'DASH streaming')     // "DASH" → "DASH streaming" (pronounceable)
+        .replace(/\bMPEG-DASH\b/gi, 'MPEG DASH')    // "MPEG-DASH" → "MPEG DASH"
+        .replace(/\bVOD\b/g, 'video on demand')     // "VOD" → natural phrase
+        .replace(/\bLive\s+streaming\b/gi, 'live streaming')  // Keep natural
+        .replace(/\bTCP\b/g, 'T C P')               // "TCP" → "T C P"
+        .replace(/\bDNS\b/g, 'D N S')               // "DNS" → "D N S"
+        .replace(/\bTLS\b/g, 'T L S')               // "TLS" → "T L S"
+        .replace(/\bSSL\b/g, 'S S L')               // "SSL" → "S S L"
+        .replace(/\bTTL\b/g, 'T T L')               // "TTL" → "T T L"
+        .replace(/\bQoE\b/g, 'quality of experience')  // "QoE" → "quality of experience"
+        .replace(/\bQoS\b/g, 'quality of service')     // "QoS" → "quality of service"
+        .replace(/\bVST\b/g, 'video startup time')     // "VST" → "video startup time"
+        .replace(/\bABR\b/g, 'adaptive bitrate')       // "ABR" → "adaptive bitrate"
+        .replace(/\bRTMP\b/g, 'R T M P')            // "RTMP" → "R T M P"
+        .replace(/\bWebRTC\b/g, 'Web R T C')        // "WebRTC" → "Web R T C"
+        .replace(/\bMSE\b/g, 'Media Source Extensions')  // "MSE" → natural phrase
+        .replace(/\bEME\b/g, 'Encrypted Media Extensions')  // "EME" → natural phrase
+        .replace(/\bDRM\b/g, 'digital rights management')  // "DRM" → natural phrase
+        .replace(/\bUI\b/g, 'user interface')       // "UI" → "user interface"
+        .replace(/\bUX\b/g, 'user experience')      // "UX" → "user experience"
+        .replace(/\bMP4\b/g, 'M P 4')               // "MP4" → "M P 4"
+        .replace(/\bH\.264\b/g, 'H 264')            // "H.264" → "H 264"
+        .replace(/\bH\.265\b/g, 'H 265')            // "H.265" → "H 265"
+        .replace(/\bHEVC\b/g, 'H E V C')            // "HEVC" → "H E V C"
+        .replace(/\bVP9\b/g, 'V P 9')               // "VP9" → "V P 9"
+        .replace(/\bAAC\b/g, 'A A C')               // "AAC" → "A A C"
+        .replace(/\bMP3\b/g, 'M P 3')               // "MP3" → "M P 3"
+        // General text cleanup
+        .replace(/\n\n+/g, ', ')                    // Paragraph breaks become commas for natural pauses
+        .replace(/\n/g, ' ')                        // Single line breaks become spaces
+        .replace(/\.\.\./g, ',')                    // Convert ellipsis to comma for better pronunciation
+        .replace(/\.{2,}/g, '.')                    // Multiple periods to single period
+        .replace(/,{2,}/g, ',')                     // Multiple commas to single comma
+        .replace(/\s+/g, ' ')                       // Normalize whitespace
+        .replace(/([a-z])([A-Z])/g, '$1 $2')        // Add space between camelCase words
+        .replace(/\s+([,.])/g, '$1')               // Remove spaces before punctuation
+        .replace(/([,.])\s*/g, '$1 ')              // Ensure single space after punctuation
         .trim();
     
+    const preprocessTime = Date.now() - preprocessStart;
+    console.log(`[TTS-Preprocessing] Completed in ${preprocessTime}ms (output: ${naturalText.length} chars)`);
+    console.log(`[TTS-Preprocessing] Sample output: "${naturalText.substring(0, 150)}..."`);
+
+    
     try {
+        // 3-tier voice selection: env var → cached voice → async selection
+        console.log(`[TTS-VoiceSelection] Starting voice selection...`);
+        const voiceSelectionStart = Date.now();
+        
+        const configuredVoiceId = process.env.CARTESIA_VOICE_ID;
+        let voiceId: string;
+        
+        if (configuredVoiceId) {
+            // Tier 1: Use configured voice ID from env
+            voiceId = configuredVoiceId;
+            console.log(`[TTS-VoiceSelection] ✓ Using configured voice ID: ${voiceId} (${Date.now() - voiceSelectionStart}ms)`);
+        } else {
+            // Tier 2/3: Get pre-selected voice (fast if cached, async if first time)
+            // apiKey is guaranteed to be defined because we validated it above
+            const voice = await getPreSelectedVoice(apiKey!);
+            voiceId = voice.id;
+            console.log(`[TTS-VoiceSelection] ✓ Using voice: ${voice.name} (${voiceId}) (${Date.now() - voiceSelectionStart}ms)`);
+        }
+        
+        console.log(`[TTS-API] Calling Cartesia API (text length: ${naturalText.length} chars, ~${Math.ceil(naturalText.split(/\s+/).length / 150)} min audio)...`);
+        const ttsStartTime = Date.now();
+        
         // Generate TTS audio using Cartesia SDK with WAV output
         const audioData = await client.tts.bytes({
             modelId: 'sonic-2',
@@ -93,197 +282,91 @@ async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
             voice: { mode: 'id', id: voiceId },
             language: 'en',
             outputFormat: {
-                container: 'wav',  // Get WAV format directly from Cartesia
+                container: 'wav',
                 encoding: 'pcm_s16le',
                 sampleRate: 24000
             }
         });
         
+        const ttsTime = Date.now() - ttsStartTime;
+        const audioSize = Buffer.from(audioData).length;
+        console.log(`[TTS-API] ✓ Cartesia API completed in ${ttsTime}ms (generated ${(audioSize / 1024 / 1024).toFixed(2)} MB)`);
+        
+        const totalTime = Date.now() - startTime;
+        console.log(`[TTS-Total] ⚡ Complete TTS generation in ${totalTime}ms (preprocessing: ${Date.now() - startTime - ttsTime}ms, API: ${ttsTime}ms)`);
+        
         return Buffer.from(audioData);
     } catch (error) {
         const sanitizedError = sanitizeApiKey(error instanceof Error ? error.message : String(error));
+        console.error(`[TTS-Error] Cartesia TTS failed:`, sanitizedError);
         throw new Error(`Cartesia TTS failed: ${sanitizedError}`);
     }
 }
 
 
 
+// Condense any generated summary to a target word count for ~2-3 minute speech
+// Increased limits to allow for comprehensive error analysis and recommendations
 /**
- * Wait for asset to be created from upload using MCP (preferred) or REST API fallback
- * Defaults to MCP unless explicitly disabled
+ * Condense a full summary to a brief audio-friendly version using LLM
+ * Target: 75-90 words for ~30-second audio
  */
-async function waitForAssetCreation(uploadId: string): Promise<string | undefined> {
-    const useMcp = process.env.USE_MUX_MCP !== 'false';
+async function condenseForAudio(fullSummary: string): Promise<string> {
+    const words = fullSummary.trim().split(/\s+/);
     
-    if (useMcp) {
-        console.debug(`[waitForAssetCreation] Using MCP to check upload status for ${uploadId}`);
+    // If already short enough, return as-is
+    if (words.length <= 90) {
+        console.log(`[condenseForAudio] Summary already brief (${words.length} words), skipping condensation`);
+        return fullSummary.trim();
+    }
+    
+    console.log(`[condenseForAudio] Condensing from ${words.length} words to 75-90 words for audio...`);
+    const condenseStart = Date.now();
+    
+    try {
+        const { generateText } = await import('ai');
+        const { anthropic } = await import('@ai-sdk/anthropic');
         
-        try {
-            const uploadTools = await uploadClient.getTools();
-            let retrieveTool = uploadTools['retrieve_video_uploads'] || uploadTools['video.uploads.get'];
-            
-            // If no direct tool, try invoke_api_endpoint
-            if (!retrieveTool) {
-                const invokeTool = uploadTools['invoke_api_endpoint'];
-                if (!invokeTool) {
-                    throw new Error('Mux MCP did not expose any upload retrieval tools or invoke_api_endpoint');
-                }
-                
-                retrieveTool = {
-                    execute: async ({ context }: { context: any }) => {
-                        return await invokeTool.execute({ 
-                            context: { 
-                                endpoint_name: 'retrieve_video_uploads',
-                                arguments: context 
-                            } 
-                        });
-                    }
-                };
-            }
-            
-            // Poll for asset creation with timeout
-            const maxAttempts = 30; // 30 attempts
-            const delayMs = 2000; // 2 seconds between attempts
-            const timeoutMs = maxAttempts * delayMs; // 60 seconds total timeout
-            
-            console.debug(`[waitForAssetCreation] Waiting for asset creation from upload ${uploadId}...`);
-            
-            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-                try {
-                    const retrieveRes = await retrieveTool.execute({ context: { UPLOAD_ID: uploadId } });
-                    
-                    // Parse MCP response - it can be in multiple formats
-                    let upload: any = null;
-                    
-                    // Format 1: Direct data object
-                    if (retrieveRes && retrieveRes.data) {
-                        upload = retrieveRes.data;
-                    }
-                    // Format 2: Content array with JSON text
-                    else if (retrieveRes && Array.isArray(retrieveRes)) {
-                        const textContent = retrieveRes.find((item: any) => item.type === 'text');
-                        if (textContent && textContent.text) {
-                            try {
-                                const parsed = JSON.parse(textContent.text);
-                                upload = parsed.data || parsed;
-                            } catch (e) {
-                                console.warn('[waitForAssetCreation] Failed to parse JSON from text content:', e);
-                            }
-                        }
-                    }
-                    // Format 3: Object with content array
-                    else if (retrieveRes && retrieveRes.content && Array.isArray(retrieveRes.content)) {
-                        const textContent = retrieveRes.content.find((item: any) => item.type === 'text');
-                        if (textContent && textContent.text) {
-                            try {
-                                const parsed = JSON.parse(textContent.text);
-                                upload = parsed.data || parsed;
-                            } catch (e) {
-                                console.warn('[waitForAssetCreation] Failed to parse JSON from content:', e);
-                            }
-                        }
-                    }
-                    // Format 4: Plain object response
-                    else if (retrieveRes && retrieveRes.id) {
-                        upload = retrieveRes;
-                    }
-                    
-                    if (upload && upload.asset_id) {
-                        console.debug(`[waitForAssetCreation] Asset created: ${upload.asset_id}`);
-                        return upload.asset_id;
-                    }
-                    
-                    if (upload && upload.status === 'errored') {
-                        throw new Error(`Upload failed: ${upload.error?.message || 'Unknown error'}`);
-                    }
-                    
-                    console.debug(`[waitForAssetCreation] Attempt ${attempt}/${maxAttempts}: Upload status: ${upload?.status || 'unknown'}`);
-                    
-                    // Wait before next attempt
-                    if (attempt < maxAttempts) {
-                        await new Promise(resolve => setTimeout(resolve, delayMs));
-                    }
-                    
-                } catch (error) {
-                    console.warn(`[waitForAssetCreation] Attempt ${attempt} failed:`, error);
-                    if (attempt === maxAttempts) {
-                        throw error;
-                    }
-                    await new Promise(resolve => setTimeout(resolve, delayMs));
-                }
-            }
-            
-            console.warn(`[waitForAssetCreation] Timeout waiting for asset creation after ${timeoutMs}ms`);
-            return undefined;
-            
-        } catch (error) {
-            console.error('[waitForAssetCreation] MCP error:', error);
-            throw error;
+        const result = await generateText({
+            model: anthropic('claude-3-5-sonnet-20241022'),
+            prompt: `You are a streaming video analytics expert. Condense the following detailed analytics report into a natural, conversational 30-second audio summary (75-90 words MAXIMUM).
+
+RULES:
+- Focus on the MOST IMPORTANT metrics only (top 3-4 key points)
+- Use natural conversational language, NO numbered lists
+- Say "The highest count", "The most common", NOT "1. ", "2. "
+- Include specific numbers and metrics
+- End with ONE actionable recommendation if present
+- Speak dates naturally: "October thirteenth twenty twenty-five"
+- Must be 75-90 words total
+
+FULL DETAILED REPORT:
+${fullSummary}
+
+CONDENSED 30-SECOND AUDIO SUMMARY (75-90 words):`,
+            temperature: 0.3,
+        });
+        
+        const condensed = result.text.trim();
+        const condensedWords = condensed.split(/\s+/).length;
+        console.log(`[condenseForAudio] ✓ Condensed in ${Date.now() - condenseStart}ms (${words.length} → ${condensedWords} words)`);
+        
+        return condensed;
+    } catch (error) {
+        console.error('[condenseForAudio] ✗ LLM condensation failed, falling back to truncation:', error);
+        // Fallback: simple truncation
+        const truncated = words.slice(0, 90).join(' ');
+        const lastPeriod = truncated.lastIndexOf('. ');
+        if (lastPeriod > 0) {
+            return truncated.slice(0, lastPeriod + 1).trim();
         }
+        return truncated + '...';
     }
-    
-    // Fallback to REST API
-    const muxTokenId = process.env.MUX_TOKEN_ID;
-    const muxTokenSecret = process.env.MUX_TOKEN_SECRET;
-    
-    if (!muxTokenId || !muxTokenSecret) {
-        throw new Error('MUX_TOKEN_ID and MUX_TOKEN_SECRET are required');
-    }
-    
-    const authHeader = 'Basic ' + Buffer.from(`${muxTokenId}:${muxTokenSecret}`).toString('base64');
-    
-    // Poll for asset creation with timeout
-    const maxAttempts = 30; // 30 attempts
-    const delayMs = 2000; // 2 seconds between attempts
-    const timeoutMs = maxAttempts * delayMs; // 60 seconds total timeout
-    
-    console.debug(`[waitForAssetCreation] Using REST API to check upload status for ${uploadId}...`);
-    
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            const response = await fetch(`https://api.mux.com/video/v1/uploads/${uploadId}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': authHeader,
-                    'Content-Type': 'application/json'
-                }
-            } as any);
-            
-            if (!response.ok) {
-                throw new Error(`Mux API error ${response.status}`);
-            }
-            
-            const data = await response.json() as any;
-            const upload = data.data;
-            
-            if (upload && upload.asset_id) {
-                console.debug(`[waitForAssetCreation] Asset created: ${upload.asset_id}`);
-                return upload.asset_id;
-            }
-            
-            if (upload && upload.status === 'errored') {
-                throw new Error(`Upload failed: ${upload.error?.message || 'Unknown error'}`);
-            }
-            
-            console.debug(`[waitForAssetCreation] Attempt ${attempt}/${maxAttempts}: Upload status: ${upload?.status || 'unknown'}`);
-            
-            // Wait before next attempt
-            if (attempt < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-            
-        } catch (error) {
-            console.warn(`[waitForAssetCreation] Attempt ${attempt} failed:`, error);
-            if (attempt === maxAttempts) {
-                throw error;
-            }
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-    }
-    
-    console.warn(`[waitForAssetCreation] Timeout waiting for asset creation after ${timeoutMs}ms`);
-    return undefined;
 }
+
+// REMOVED: waitForAssetCreation function
+// This function was blocking agent streaming responses with 5+ second delays
+// Frontend now handles asset creation polling instead for near real-time responses
 
 /**
  * Create Mux upload using MCP (preferred) or REST API fallback
@@ -548,6 +631,38 @@ async function putFileToMux(uploadUrl: string, filePath: string): Promise<void> 
 
 const STREAMING_PORTFOLIO_BASE_URL = process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com';
 
+// ===== Async audio job storage (in-memory) =====
+type AudioJobStatus = 'queued' | 'processing' | 'uploaded' | 'error';
+interface AudioJobMeta {
+    status: AudioJobStatus;
+    createdAt: number;
+    updatedAt: number;
+    error?: string;
+    playerUrl?: string;
+    assetId?: string;
+    uploadId?: string;
+}
+
+const audioJobs: Map<string, AudioJobMeta> = new Map();
+const generateJobId = () => 'job_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+async function pollMuxAssetForUpload(uploadId: string): Promise<{ assetId?: string } | null> {
+    try {
+        const url = `${process.env.MUX_BASE_URL || 'https://api.mux.com'}/video/v1/uploads/${uploadId}`;
+        const tokenId = process.env.MUX_TOKEN_ID;
+        const tokenSecret = process.env.MUX_TOKEN_SECRET;
+        if (!tokenId || !tokenSecret) return null;
+        const auth = Buffer.from(`${tokenId}:${tokenSecret}`).toString('base64');
+        const res = await fetch(url, { headers: { Authorization: `Basic ${auth}` } } as any);
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => ({}));
+        const assetId = data?.data?.asset_id as string | undefined;
+        return { assetId };
+    } catch {
+        return null;
+    }
+}
+
 /**
  * TTS Analytics Report Tool - Generate audio report from analytics data
  */
@@ -561,42 +676,90 @@ const ttsAnalyticsReportTool = createTool({
         ]).optional(),
         includeAssetList: z.boolean().describe("Whether to include asset list in the report").optional(),
         focusArea: z.enum(['general', 'errors', 'both']).describe("What to focus on: 'general' for overall analytics, 'errors' for error analysis, 'both' for comprehensive report").optional(),
+        asyncMode: z.boolean().describe("When true, run TTS generation + Mux upload in background, return jobId immediately").optional(),
     }),
     execute: async ({ context }) => {
+        const toolExecutionStart = Date.now();
+        console.log('[TOOL-START] ═══════════════════════════════════════════════════════');
+        console.log('[TOOL-START] TTS Analytics Report Tool Execution Beginning');
+        console.log('[TOOL-START] ═══════════════════════════════════════════════════════');
+        
         try {
-            const { timeframe, includeAssetList, focusArea } = context as { timeframe?: string | number[]; includeAssetList?: boolean; focusArea?: 'general' | 'errors' | 'both' };
+            const { timeframe, includeAssetList, focusArea, asyncMode } = context as { timeframe?: string | number[]; includeAssetList?: boolean; focusArea?: 'general' | 'errors' | 'both'; asyncMode?: boolean };
             
             const actualFocusArea = focusArea || 'general';
+            console.log(`[TOOL-Config] Focus Area: ${actualFocusArea}, Include Assets: ${includeAssetList}, Timeframe: ${JSON.stringify(timeframe)}`);
             
             // Parse timeframe if it's a relative expression
+            console.log('[TOOL-Timeframe] Parsing timeframe...');
+            const timeframeStart = Date.now();
             let parsedTimeframe: number[] | undefined;
             if (typeof timeframe === 'string') {
                 const { parseRelativeTimeframe } = await import('../tools/mux-analytics.js');
                 parsedTimeframe = parseRelativeTimeframe(timeframe);
+                console.log(`[TOOL-Timeframe] ✓ Parsed "${timeframe}" to [${parsedTimeframe}] (${Date.now() - timeframeStart}ms)`);
             } else if (Array.isArray(timeframe)) {
                 parsedTimeframe = timeframe;
+                console.log(`[TOOL-Timeframe] ✓ Using provided timeframe array (${Date.now() - timeframeStart}ms)`);
+            } else {
+                console.log(`[TOOL-Timeframe] ✓ No timeframe specified, using tool defaults (${Date.now() - timeframeStart}ms)`);
             }
+            
+            // Determine async behavior
+            const asyncEnabled = typeof asyncMode === 'boolean' ? asyncMode : (process.env.ASYNC_TTS === 'true');
             
             // Fetch analytics data based on focus area
             let analyticsResult: any;
             let errorsResult: any;
+            let streamingResult: any;
+            let cdnResult: any;
+            let engagementResult: any;
             
-            // Fetch general analytics if needed
+            // Fetch category-specific data based on focus area
             if (actualFocusArea === 'general' || actualFocusArea === 'both') {
+                console.log('[TOOL-DataFetch] Fetching analytics data from Mux API...');
+                const dataFetchStart = Date.now();
                 try {
-                    analyticsResult = await (muxAnalyticsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                    // Fetch all category-specific metrics
+                    console.log('[TOOL-DataFetch] → Calling 4 parallel Mux Data API endpoints...');
+                    [analyticsResult, streamingResult, cdnResult, engagementResult] = await Promise.all([
+                        (muxAnalyticsTool as any).execute({ context: { timeframe: parsedTimeframe } }).catch((e: any) => {
+                            console.warn('[tts-analytics-report] Analytics failed:', e);
+                            return { success: false, error: e instanceof Error ? e.message : String(e) };
+                        }),
+                        (muxStreamingPerformanceTool as any).execute({ context: { timeframe: parsedTimeframe } }).catch((e: any) => {
+                            console.warn('[tts-analytics-report] Streaming performance failed:', e);
+                            return { success: false, error: e instanceof Error ? e.message : String(e) };
+                        }),
+                        (muxCDNMetricsTool as any).execute({ context: { timeframe: parsedTimeframe } }).catch((e: any) => {
+                            console.warn('[tts-analytics-report] CDN metrics failed:', e);
+                            return { success: false, error: e instanceof Error ? e.message : String(e) };
+                        }),
+                        (muxEngagementMetricsTool as any).execute({ context: { timeframe: parsedTimeframe } }).catch((e: any) => {
+                            console.warn('[tts-analytics-report] Engagement metrics failed:', e);
+                            return { success: false, error: e instanceof Error ? e.message : String(e) };
+                        })
+                    ]);
+                    const dataFetchTime = Date.now() - dataFetchStart;
+                    console.log(`[TOOL-DataFetch] ✓ Mux Data API calls completed in ${dataFetchTime}ms`);
+                    console.log(`[TOOL-DataFetch]   - Analytics: ${analyticsResult?.success ? '✓' : '✗'}`);
+                    console.log(`[TOOL-DataFetch]   - Streaming: ${streamingResult?.success ? '✓' : '✗'}`);
+                    console.log(`[TOOL-DataFetch]   - CDN: ${cdnResult?.success ? '✓' : '✗'}`);
+                    console.log(`[TOOL-DataFetch]   - Engagement: ${engagementResult?.success ? '✓' : '✗'}`);
                 } catch (error) {
-                    console.error('[tts-analytics-report] Analytics tool failed:', error);
-                    analyticsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                    console.error('[TOOL-DataFetch] ✗ Category fetch failed:', error);
                 }
             }
             
             // Fetch error data if needed
             if (actualFocusArea === 'errors' || actualFocusArea === 'both') {
+                console.log('[TOOL-ErrorData] Fetching error data from Mux API...');
+                const errorFetchStart = Date.now();
                 try {
                     errorsResult = await (muxErrorsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                    console.log(`[TOOL-ErrorData] ✓ Error data fetched in ${Date.now() - errorFetchStart}ms (${errorsResult?.success ? 'success' : 'failed'})`);
                 } catch (error) {
-                    console.error('[tts-analytics-report] Errors tool failed:', error);
+                    console.error('[TOOL-ErrorData] ✗ Errors tool failed:', error);
                     errorsResult = { success: false, error: error instanceof Error ? error.message : String(error) };
                 }
             }
@@ -621,42 +784,195 @@ const ttsAnalyticsReportTool = createTool({
                 };
             }
             
-            // Generate summary text based on focus area
+            // If async, start background job and return fast
+            if (asyncEnabled) {
+                const jobId = generateJobId();
+                audioJobs.set(jobId, { status: 'queued', createdAt: Date.now(), updatedAt: Date.now() });
+
+                setImmediate(async () => {
+                    try {
+                        const job0 = audioJobs.get(jobId);
+                        if (job0) {
+                            job0.status = 'processing';
+                            job0.updatedAt = Date.now();
+                            audioJobs.set(jobId, job0);
+                        }
+
+                        // Recompute timeRange in case
+                        if (analyticsResult?.success) {
+                            timeRange = analyticsResult.timeRange;
+                        } else if (errorsResult?.success) {
+                            timeRange = errorsResult.timeRange;
+                        } else if (parsedTimeframe && parsedTimeframe.length === 2) {
+                            timeRange = {
+                                start: new Date(parsedTimeframe[0] * 1000).toISOString(),
+                                end: new Date(parsedTimeframe[1] * 1000).toISOString()
+                            };
+                        } else {
+                            timeRange = {
+                                start: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+                                end: new Date().toISOString()
+                            };
+                        }
+
+                        // Use concise path for audio content
+                        const actualFocusArea = focusArea || 'general';
             if (actualFocusArea === 'errors' && errorsResult?.success) {
-                // Error-focused report using REAL data only
+                const { errors, totalErrors, platformBreakdown } = errorsResult;
+                            summaryText = `Error Analysis Report for Paramount Plus Streaming:\n\nTime Period: ${formatDateForSpeech(new Date(timeRange.start))} to ${formatDateForSpeech(new Date(timeRange.end))}\n\nTotal Errors Detected: ${totalErrors || 0}\n\n`;
+                            if (totalErrors > 0) {
+                                summaryText += `Your streaming platform encountered ${totalErrors} errors during this period. `;
+                                if (platformBreakdown && platformBreakdown.length > 0) {
+                                    const topPlatform = platformBreakdown[0];
+                                    const platformName = topPlatform.field || topPlatform.operating_system || 'Unknown Platform';
+                                    const errorCount = topPlatform.value || topPlatform.error_count || 0;
+                                    summaryText += `The highest count was on ${platformName} with ${errorCount} errors. `;
+                                }
+                                if (errors && errors.length > 0) {
+                                    const topError = errors[0];
+                                    const errorType = topError.error_type || topError.type || 'Unknown Error';
+                                    const errorCount = topError.count || 1;
+                                    summaryText += `The most common error was ${errorType} with ${errorCount} occurrences. `;
+                                }
+                                summaryText += `Investigate the most common error types and focus on platforms with the highest error rates.`;
+                            } else {
+                                summaryText += `Great news! No errors were detected during this time period. Your streaming infrastructure is performing excellently.`;
+                            }
+                        } else if (actualFocusArea === 'both' && (analyticsResult?.success || streamingResult?.success || cdnResult?.success || engagementResult?.success || errorsResult?.success)) {
+                            summaryText = `Mux Analytics Report from ${formatDateForSpeech(new Date(timeRange.start))} to ${formatDateForSpeech(new Date(timeRange.end))}. `;
+                            if (streamingResult?.success && streamingResult.streamingMetrics?.video_startup_time?.value !== undefined) {
+                                const startupMs = streamingResult.streamingMetrics.video_startup_time.value;
+                                summaryText += `Video startup time is ${(startupMs / 1000).toFixed(1)} seconds. `;
+                            }
+                            if (streamingResult?.success && streamingResult.streamingMetrics?.rebuffer_percentage?.value !== undefined) {
+                                const rebufferPct = streamingResult.streamingMetrics.rebuffer_percentage.value;
+                                if (rebufferPct > 1) {
+                                    summaryText += `Rebuffering is at ${rebufferPct.toFixed(1)} percent. `;
+                                }
+                            }
+                            if (errorsResult?.success && errorsResult.totalErrors > 0) {
+                                summaryText += `There were ${errorsResult.totalErrors} errors detected. `;
+                                if (errorsResult.errors && errorsResult.errors.length > 0) {
+                                    const topError = errorsResult.errors[0];
+                                    const errorType = topError.error_type || topError.type || 'Unknown';
+                                    summaryText += `The most common was ${errorType}. `;
+                                }
+                            }
+                            const { analysis } = analyticsResult || {};
+                            if (analysis) {
+                                summaryText += `Overall health score is ${analysis.healthScore} out of 100. `;
+                                if (analysis.recommendations && analysis.recommendations.length > 0) {
+                                    summaryText += analysis.recommendations[0];
+                                }
+                            }
+                        } else if (analyticsResult?.success) {
+                            const { metrics, analysis } = analyticsResult;
+                            summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
+                        } else {
+                            throw new Error('No analytics data available to generate audio summary');
+                        }
+
+                        const audioSummary = await condenseForAudio(summaryText);
+                        const audioBuffer = await synthesizeWithCartesiaTTS(audioSummary);
+
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                        const baseDir = process.env.TTS_TMP_DIR || '/tmp/tts';
+                        const audioPath = join(baseDir, `analytics-report-${timestamp}.wav`);
+                        await fs.mkdir(dirname(resolve(audioPath)), { recursive: true });
+                        await fs.writeFile(resolve(audioPath), audioBuffer);
+
+                        const posterImageUrl = `${STREAMING_PORTFOLIO_BASE_URL}/files/images/baby.jpeg`;
+                        const uploadData = await createMuxUpload(posterImageUrl);
+                        const uploadUrl = uploadData.uploadUrl;
+                        const uploadId = uploadData.uploadId;
+                        let assetId = uploadData.assetId;
+                        if (!uploadUrl) throw new Error('No upload URL received from Mux');
+                        await putFileToMux(uploadUrl, resolve(audioPath));
+
+                        if (uploadId && !assetId) {
+                            for (let i = 0; i < 15; i++) {
+                                await new Promise(r => setTimeout(r, 2000));
+                                const polled = await pollMuxAssetForUpload(uploadId);
+                                if (polled?.assetId) {
+                                    assetId = polled.assetId;
+                                    break;
+                                }
+                            }
+                        }
+
+                        const playerUrl = assetId ? `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}` : undefined;
+                        const job1 = audioJobs.get(jobId);
+                        if (job1) {
+                            job1.status = 'uploaded';
+                            job1.updatedAt = Date.now();
+                            job1.playerUrl = playerUrl;
+                            job1.assetId = assetId;
+                            job1.uploadId = uploadId;
+                            audioJobs.set(jobId, job1);
+                        }
+                    } catch (e: any) {
+                        const jobE = audioJobs.get(jobId);
+                        if (jobE) {
+                            jobE.status = 'error';
+                            jobE.updatedAt = Date.now();
+                            jobE.error = e instanceof Error ? e.message : String(e);
+                            audioJobs.set(jobId, jobE);
+                        }
+                    }
+                });
+
+                return {
+                    success: true,
+                    async: true,
+                    jobId,
+                    estimatedSeconds: 45,
+                    message: 'Audio generation started in background. Poll job status to retrieve the player URL when ready.'
+                };
+            }
+
+            // Generate FULL DETAILED summary text based on focus area (for chat display - READABLE FORMAT)
+            if (actualFocusArea === 'errors' && errorsResult?.success) {
+                // Error-focused report using REAL data only - FULL DETAILED VERSION FOR READING
                 const { errors, totalErrors, platformBreakdown } = errorsResult;
                 
-                summaryText = `Error Analysis Report for Paramount Plus Streaming:
+                // Format dates for READING (not speech)
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                
+                summaryText = `## Error Analysis Report
 
-Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
+**Time Period:** ${startDate} to ${endDate}
 
-Total Errors Detected: ${totalErrors || 0}
+**Total Errors Detected:** ${totalErrors || 0}
 
 `;
                 
                 if (totalErrors > 0) {
-                    summaryText += `Error Summary:\n`;
-                    summaryText += `Your streaming platform encountered ${totalErrors} errors during this period. `;
+                    summaryText += `Your streaming platform encountered **${totalErrors} errors** during this period.\n\n`;
                     
                     // Add platform breakdown if available
                     if (platformBreakdown && platformBreakdown.length > 0) {
-                        summaryText += `\n\nError Breakdown by Platform:\n`;
-                        platformBreakdown.slice(0, 5).forEach((platform: any, idx: number) => {
+                        summaryText += `### Error Breakdown by Platform\n\n`;
+                        platformBreakdown.slice(0, 5).forEach((platform: any) => {
                             const platformName = platform.field || platform.operating_system || 'Unknown Platform';
                             const errorCount = platform.value || platform.error_count || 0;
                             const errorPct = platform.error_percentage || 0;
-                            summaryText += `${idx + 1}. ${platformName}: ${errorCount} errors (${errorPct.toFixed(1)}% error rate)\n`;
+                            summaryText += `• **${platformName}:** ${errorCount} errors (${errorPct.toFixed(1)}% error rate)\n`;
                         });
                     }
                     
                     // Add top errors
                     if (errors && errors.length > 0) {
-                        summaryText += `\n\nTop Error Types:\n`;
-                        errors.slice(0, 5).forEach((error: any, idx: number) => {
+                        summaryText += `\n### Top Error Types\n\n`;
+                        errors.slice(0, 5).forEach((error: any) => {
                             const errorType = error.error_type || error.type || 'Unknown Error';
                             const errorCount = error.count || 1;
                             const errorMsg = error.error_message || error.message || '';
-                            summaryText += `${idx + 1}. ${errorType}: ${errorCount} occurrences`;
+                            summaryText += `• **${errorType}:** ${errorCount} occurrences`;
                             if (errorMsg) {
                                 summaryText += ` - ${errorMsg.slice(0, 100)}`;
                             }
@@ -664,113 +980,182 @@ Total Errors Detected: ${totalErrors || 0}
                         });
                     }
                     
-                    summaryText += `\n\nRecommendations:\n`;
-                    summaryText += `1. Investigate the most common error types to identify root causes\n`;
-                    summaryText += `2. Focus on platforms with the highest error rates\n`;
-                    summaryText += `3. Review player configuration and encoding settings\n`;
-                    summaryText += `4. Monitor error trends over time to catch regressions early\n`;
+                    summaryText += `\n### Recommendations\n\n`;
+                    summaryText += `• Investigate the most common error types to identify root causes\n`;
+                    summaryText += `• Focus on platforms with the highest error rates\n`;
+                    summaryText += `• Review player configuration and encoding settings\n`;
+                    summaryText += `• Monitor error trends over time to catch regressions early\n`;
                 } else {
-                    summaryText += `Great news! No errors were detected during this time period. Your streaming infrastructure is performing excellently.\n`;
-                    summaryText += `\nBest Practices:\n`;
-                    summaryText += `- Continue monitoring error rates regularly\n`;
-                    summaryText += `- Set up alerts for error rate spikes\n`;
-                    summaryText += `- Test new content on multiple platforms before wide release\n`;
+                    summaryText += `✅ **Great news!** No errors were detected during this time period. Your streaming infrastructure is performing excellently.\n`;
+                    summaryText += `\n### Best Practices\n\n`;
+                    summaryText += `• Continue monitoring error rates regularly\n`;
+                    summaryText += `• Set up alerts for error rate spikes\n`;
+                    summaryText += `• Test new content on multiple platforms before wide release\n`;
                 }
                 
-            } else if (actualFocusArea === 'both' && (analyticsResult?.success || errorsResult?.success)) {
-                // Comprehensive report with both analytics and errors (at least one must succeed)
-                const { metrics, analysis } = analyticsResult || {};
-                const { totalErrors, platformBreakdown, errors } = errorsResult || {};
+            } else if (actualFocusArea === 'both' && (analyticsResult?.success || streamingResult?.success || cdnResult?.success || engagementResult?.success || errorsResult?.success)) {
+                // Comprehensive report - FULL DETAILED VERSION FOR READING
+                // Format dates for READING (not speech)
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
                 
-                // Check if there are actual errors - if so, use a modified summary approach
-                if (totalErrors > 0) {
-                    // Modified summary that acknowledges errors upfront
-                    summaryText = `Hello! Here's your Mux Video Streaming Analytics Report.
+                summaryText = `## Mux Streaming Analytics Report\n\n`;
+                summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
+                
+                // 1. VIDEO STREAMING PERFORMANCE METRICS
+                if (streamingResult?.success && streamingResult.streamingMetrics) {
+                    summaryText += `### Video Streaming Performance\n\n`;
+                    const sm = streamingResult.streamingMetrics;
                     
-Time Period: ${new Date(timeRange.start).toLocaleDateString()} to ${new Date(timeRange.end).toLocaleDateString()}
-
-Overall Performance Summary:
-Your streaming infrastructure had ${metrics?.total_views || 0} views during this period, with ${totalErrors} error events detected. Let me break down the details.
-
-Error Analysis:
-Total Error Events: ${totalErrors}
-
-`;
+                    if (sm.video_startup_time && sm.video_startup_time.value !== undefined) {
+                        const startupMs = sm.video_startup_time.value;
+                        summaryText += `• **Video Startup Time:** ${(startupMs / 1000).toFixed(2)} seconds\n`;
+                        if (startupMs < 2000) {
+                            summaryText += `  - ✅ Excellent - under 2 seconds for HLS/DASH playback initiation\n`;
+                        } else if (startupMs < 3000) {
+                            summaryText += `  - ✓ Good - within acceptable range for HLS segment loading\n`;
+                        } else {
+                            summaryText += `  - ⚠️ Needs improvement - consider optimizing manifest size and init segment\n`;
+                        }
+                    }
                     
-                    // Add detailed error breakdown
-                    if (errors && errors.length > 0) {
-                        summaryText += `Detailed Error Breakdown:\n`;
-                        errors.slice(0, 5).forEach((error: any, idx: number) => {
-                            const errorType = error.error_type || error.type || 'Unknown Error';
-                            const errorCount = error.count || 1;
-                            const errorMsg = error.error_message || error.message || '';
-                            summaryText += `${idx + 1}. ${errorType}: ${errorCount} occurrences`;
-                            if (errorMsg) {
-                                summaryText += ` - ${errorMsg.slice(0, 100)}`;
-                            }
-                            summaryText += `\n`;
+                    if (sm.rebuffer_percentage && sm.rebuffer_percentage.value !== undefined) {
+                        const rebufferPct = sm.rebuffer_percentage.value;
+                        summaryText += `• **Rebuffering Rate:** ${rebufferPct.toFixed(2)}%\n`;
+                        if (rebufferPct < 1) {
+                            summaryText += `  - ✅ Excellent - minimal stalls in adaptive bitrate streaming\n`;
+                        } else if (rebufferPct < 3) {
+                            summaryText += `  - ✓ Acceptable - minor buffer underruns detected\n`;
+                        } else {
+                            summaryText += `  - ❌ Critical - review ABR ladder and CDN edge performance\n`;
+                        }
+                    }
+                    
+                    if (sm.rebuffer_count && sm.rebuffer_count.value !== undefined) {
+                        summaryText += `• **Total Rebuffer Events:** ${sm.rebuffer_count.value}\n`;
+                    }
+                    
+                    summaryText += `\n`;
+                }
+                
+                // 2. ERROR RATES AND PLAYBACK ISSUES
+                if (errorsResult?.success) {
+                    summaryText += `### Error Rates and Playback Issues\n\n`;
+                    const { totalErrors, platformBreakdown, errors } = errorsResult;
+                    
+                    summaryText += `• **Total Error Events:** ${totalErrors || 0}\n`;
+                    
+                    if (totalErrors > 0) {
+                        if (platformBreakdown && platformBreakdown.length > 0) {
+                            summaryText += `\n**Error Distribution by Platform:**\n`;
+                            platformBreakdown.slice(0, 3).forEach((platform: any) => {
+                                const platformName = platform.operating_system || platform.field || 'Unknown';
+                                const errorCount = platform.error_count || platform.value || 0;
+                                summaryText += `  • ${platformName}: ${errorCount} errors\n`;
+                            });
+                        }
+                        
+                        if (errors && errors.length > 0) {
+                            summaryText += `\n**Top Error Types:**\n`;
+                            errors.slice(0, 3).forEach((error: any) => {
+                                const errorType = error.error_type || error.type || 'Unknown';
+                                const errorCount = error.count || 1;
+                                summaryText += `  • ${errorType}: ${errorCount} occurrences\n`;
+                            });
+                        }
+                    } else {
+                        summaryText += `  - ✅ Excellent - zero playback errors detected\n`;
+                    }
+                    
+                    summaryText += `\n`;
+                }
+                
+                // 3. CDN OPTIMIZATION RECOMMENDATIONS
+                if (cdnResult?.success && cdnResult.cdnMetrics) {
+                    summaryText += `### CDN and Delivery Optimization\n\n`;
+                    const cdnData = cdnResult.cdnMetrics;
+                    
+                    if (cdnData.country && cdnData.country.length > 0) {
+                        summaryText += `**Top Geographic Regions:**\n`;
+                        cdnData.country.slice(0, 3).forEach((country: any) => {
+                            const countryName = country.field || 'Unknown';
+                            const views = country.views || 0;
+                            const avgStartup = country.value || 0;
+                            summaryText += `  • ${countryName}: ${views} views, ${(avgStartup / 1000).toFixed(2)}s avg startup\n`;
                         });
-                        summaryText += `\n`;
                     }
                     
-                    // Add platform breakdown
-                    if (platformBreakdown && platformBreakdown.length > 0) {
-                        summaryText += `Platform Error Distribution:\n`;
-                        platformBreakdown.slice(0, 5).forEach((platform: any, idx: number) => {
-                            const platformName = platform.field || platform.operating_system || 'Unknown';
-                            const errorCount = platform.value || platform.error_count || 0;
-                            summaryText += `${idx + 1}. ${platformName}: ${errorCount} errors\n`;
-                        });
-                        summaryText += `\n`;
+                    if (cdnData.asn && cdnData.asn.length > 0) {
+                        const topISP = cdnData.asn[0];
+                        const ispName = topISP.field || 'Unknown ISP';
+                        const ispViews = topISP.views || 0;
+                        summaryText += `\n• **Primary ISP:** ${ispName} (${ispViews} views)\n`;
                     }
                     
-                    // Add key metrics (if available)
-                    if (metrics) {
-                        summaryText += `Key Performance Metrics:\n`;
-                        if (metrics.total_views !== undefined) {
-                            summaryText += `Total Views: ${metrics.total_views.toLocaleString()}\n`;
+                    summaryText += `\n💡 **Recommendation:** Monitor CDN edge cache hit ratios and consider geo-distributed delivery for high-latency regions\n`;
+                    summaryText += `\n`;
+                }
+                
+                // 4. USER ENGAGEMENT ANALYTICS
+                if (engagementResult?.success && engagementResult.engagementMetrics) {
+                    summaryText += `### User Engagement Analytics\n\n`;
+                    const em = engagementResult.engagementMetrics;
+                    
+                    if (em.viewer_experience_score && em.viewer_experience_score.value !== undefined) {
+                        const vesScore = em.viewer_experience_score.value;
+                        summaryText += `• **Viewer Experience Score:** ${(vesScore * 100).toFixed(1)}/100\n`;
+                        if (vesScore > 0.9) {
+                            summaryText += `  - ✅ Excellent - high quality of experience\n`;
+                        } else if (vesScore > 0.75) {
+                            summaryText += `  - ✓ Good - acceptable viewer satisfaction\n`;
+                        } else {
+                            summaryText += `  - ⚠️ Needs improvement - review QoE factors\n`;
                         }
-                        if (metrics.total_error_percentage !== undefined) {
-                            summaryText += `Error Rate: ${metrics.total_error_percentage.toFixed(2)}%\n`;
-                        }
-                        if (metrics.total_rebuffer_percentage !== undefined) {
-                            summaryText += `Rebuffer Rate: ${metrics.total_rebuffer_percentage.toFixed(2)}%\n`;
-                        }
-                        if (metrics.average_startup_time_ms !== undefined) {
-                            summaryText += `Avg Startup Time: ${(metrics.average_startup_time_ms / 1000).toFixed(2)} seconds\n`;
-                        }
-                        summaryText += `\n`;
                     }
                     
-                    // Add recommendations if issues exist
-                    if (analysis.issues && analysis.issues.length > 0) {
-                        summaryText += `Issues Identified:\n`;
-                        analysis.issues.forEach((issue: string, idx: number) => {
-                            summaryText += `${idx + 1}. ${issue}\n`;
-                        });
-                        summaryText += `\n`;
+                    if (em.playback_failure_score && em.playback_failure_score.value !== undefined) {
+                        const pfScore = em.playback_failure_score.value;
+                        summaryText += `• **Playback Failure Score:** ${pfScore.toFixed(1)}\n`;
+                        if (pfScore < 10) {
+                            summaryText += `  - ✅ Excellent - minimal playback failures\n`;
+                        } else {
+                            summaryText += `  - ⚠️ Review required - investigate failure patterns\n`;
+                        }
                     }
+                    
+                    if (em.exits_before_video_start && em.exits_before_video_start.value !== undefined) {
+                        const exits = em.exits_before_video_start.value;
+                        summaryText += `• **Exits Before Video Start:** ${exits}\n`;
+                        if (exits < 50) {
+                            summaryText += `  - ✅ Good engagement - users waiting for playback\n`;
+                        } else {
+                            summaryText += `  - ❌ High abandonment - optimize startup time\n`;
+                        }
+                    }
+                    
+                    summaryText += `\n`;
+                }
+                
+                // Overall summary
+                const { analysis } = analyticsResult || {};
+                if (analysis) {
+                    summaryText += `### Overall Health Assessment\n\n`;
+                    summaryText += `• **Health Score:** ${analysis.healthScore}/100\n`;
+                    summaryText += `• **Summary:** ${analysis.summary}\n\n`;
                     
                     if (analysis.recommendations && analysis.recommendations.length > 0) {
-                        summaryText += `Recommendations:\n`;
-                        analysis.recommendations.forEach((rec: string, idx: number) => {
-                            summaryText += `${idx + 1}. ${rec}\n`;
+                        summaryText += `**Key Recommendations:**\n`;
+                        analysis.recommendations.slice(0, 3).forEach((rec: string) => {
+                            summaryText += `  • ${rec}\n`;
                         });
-                        summaryText += `\n`;
                     }
-                    
-                    summaryText += `Health Score: ${analysis.healthScore}/100\n\n`;
-                    summaryText += `That concludes your comprehensive analytics report. Thank you for listening!`;
-                    
-                } else {
-                    // No errors detected - use the standard summary
-                    summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
-                    
-                    // Append error information showing zero errors
-                    summaryText += `\n\nError Analysis:\n`;
-                    summaryText += `Total Errors: 0\n`;
-                    summaryText += `Excellent! No errors were detected during this time period.\n`;
                 }
+                
+                summaryText += `\n---\n*End of streaming analytics report*`;
                 
             } else if (analyticsResult?.success) {
                 // General analytics report
@@ -784,6 +1169,8 @@ Total Error Events: ${totalErrors}
             
             // Optionally include asset information
             if (includeAssetList) {
+                console.log('[TOOL-Assets] Fetching asset list...');
+                const assetFetchStart = Date.now();
                 try {
                     const assetsResult: any = await (muxAssetsListTool as any).execute({ context: { limit: 10 } });
                     if (assetsResult.success) {
@@ -792,88 +1179,137 @@ Total Error Events: ${totalErrors}
                             .slice(0, 5)
                             .map((a: any) => `Asset ${a.id.slice(0, 8)} is ${a.status}`)
                             .join('. ') + '.';
+                        console.log(`[TOOL-Assets] ✓ Asset list fetched in ${Date.now() - assetFetchStart}ms (${assetsResult.count} assets)`);
                     }
                 } catch (error) {
-                    console.error('[tts-analytics-report] Assets tool failed:', error);
+                    console.error('[TOOL-Assets] ✗ Assets tool failed:', error);
                     summaryText += `\n\nAsset information is currently unavailable.`;
                 }
             }
             
-            // Ensure under 1000 words
-            const wordCount = summaryText.split(/\s+/).length;
-            if (wordCount > 1000) {
-                const words = summaryText.split(/\s+/).slice(0, 950);
-                summaryText = words.join(' ') + '... Report truncated to stay under 1000 words.';
-            }
+            // Condense full summary for audio TTS (75-90 words for 30-second audio)
+            // The full detailed summary is already generated above for chat display
+            console.log('[TOOL-Condense] Condensing full summary for 30-second audio...');
+            const condenseStart = Date.now();
+            const originalWords = summaryText.split(/\s+/).length;
+            const audioSummary = await condenseForAudio(summaryText);
+            const audioWords = audioSummary.split(/\s+/).length;
+            console.log(`[TOOL-Condense] ✓ LLM condensation completed in ${Date.now() - condenseStart}ms (${originalWords} → ${audioWords} words)`);
             
-            // Generate TTS audio
-            const audioBuffer = await synthesizeWithCartesiaTTS(summaryText);
+            // Generate TTS audio from condensed summary
+            console.log('[TOOL-TTS] 🎤 Generating audio with Cartesia TTS...');
+            const ttsGenerationStart = Date.now();
+            const audioBuffer = await synthesizeWithCartesiaTTS(audioSummary);
+            console.log(`[TOOL-TTS] ✓ TTS generation completed in ${Date.now() - ttsGenerationStart}ms (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
             
             // Save audio file
+            console.log('[TOOL-FileWrite] Writing audio file to disk...');
+            const fileWriteStart = Date.now();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
             const baseDir = process.env.TTS_TMP_DIR || '/tmp/tts';
             const audioPath = join(baseDir, `analytics-report-${timestamp}.wav`);
             
             await fs.mkdir(dirname(resolve(audioPath)), { recursive: true });
             await fs.writeFile(resolve(audioPath), audioBuffer);
-            console.debug(`[tts-analytics-report] Audio saved: ${audioPath} (${audioBuffer.length} bytes)`);
+            console.log(`[TOOL-FileWrite] ✓ Audio saved in ${Date.now() - fileWriteStart}ms: ${audioPath} (${audioBuffer.length} bytes)`);
             
             // Upload to Mux with poster image
+            console.log('[TOOL-MuxUpload] Starting Mux upload process...');
+            const muxUploadStart = Date.now();
+            
             let playerUrl: string | undefined;
             let assetId: string | undefined;
+            let uploadId: string | undefined;
             
             // Use baby.jpeg as poster image for audio-only stream
             const posterImageUrl = `${STREAMING_PORTFOLIO_BASE_URL}/files/images/baby.jpeg`;
-            console.debug(`[tts-analytics-report] Using poster image: ${posterImageUrl}`);
+            console.log(`[TOOL-MuxUpload] Using poster image: ${posterImageUrl}`);
             
             try {
+                console.log('[TOOL-MuxUpload] → Creating Mux upload...');
+                const createUploadStart = Date.now();
                 const uploadData = await createMuxUpload(posterImageUrl);
                 const uploadUrl = uploadData.uploadUrl;
-                const uploadId = uploadData.uploadId;
+                uploadId = uploadData.uploadId;
                 assetId = uploadData.assetId;
+                console.log(`[TOOL-MuxUpload] ✓ Upload created in ${Date.now() - createUploadStart}ms (Upload ID: ${uploadId})`);
                 
                 if (!uploadUrl) {
                     throw new Error('No upload URL received from Mux');
                 }
                 
-                console.debug('[tts-analytics-report] Uploading audio to Mux...');
+                console.log('[TOOL-MuxUpload] → Uploading audio file to Mux...');
+                const putFileStart = Date.now();
                 await putFileToMux(uploadUrl, resolve(audioPath));
-                console.debug('[tts-analytics-report] Upload completed');
+                console.log(`[TOOL-MuxUpload] ✓ File uploaded in ${Date.now() - putFileStart}ms`);
                 
-                // Create player URL immediately using assetId if available
-                if (assetId) {
-                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                    console.debug('[tts-analytics-report] Player URL created with asset ID');
-                } else if (uploadId) {
-                    // If no assetId yet, wait for asset creation (BLOCKING - must complete before returning response)
-                    console.debug('[tts-analytics-report] No assetId yet, waiting for asset creation...');
-                    try {
-                        const retrievedAssetId = await waitForAssetCreation(uploadId);
-                        if (retrievedAssetId) {
-                            assetId = retrievedAssetId;
-                            playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
-                            console.debug(`[tts-analytics-report] Asset created with ID: ${assetId}`);
-                            console.debug(`[tts-analytics-report] Player URL: ${playerUrl}`);
-                        } else {
-                            console.warn('[tts-analytics-report] Asset creation timed out, returning with uploadId only');
+                // Poll for asset creation if we got uploadId but no assetId yet
+                if (uploadId && !assetId) {
+                    console.log('[TOOL-MuxUpload] → Polling for asset creation...');
+                    const pollStart = Date.now();
+                    const maxPolls = 30; // 30 attempts
+                    const pollInterval = 2000; // 2 seconds
+                    
+                    for (let i = 0; i < maxPolls; i++) {
+                        await new Promise(resolve => setTimeout(resolve, pollInterval));
+                        console.log(`[TOOL-MuxUpload]   Poll attempt ${i + 1}/${maxPolls} (elapsed: ${Date.now() - pollStart}ms)`);
+                        
+                        try {
+                            const response = await fetch(`https://api.mux.com/video/v1/uploads/${uploadId}`, {
+                                headers: {
+                                    'Authorization': `Basic ${Buffer.from(`${process.env.MUX_TOKEN_ID}:${process.env.MUX_TOKEN_SECRET}`).toString('base64')}`
+                                }
+                            });
+                            
+                            if (response.ok) {
+                                const data = await response.json();
+                                if (data.data?.asset_id) {
+                                    assetId = data.data.asset_id;
+                                    console.log(`[TOOL-MuxUpload] ✓ Asset created after ${Date.now() - pollStart}ms (${i + 1} polls): ${assetId}`);
+                                    break;
+                                } else if (data.data?.status === 'errored') {
+                                    console.error('[TOOL-MuxUpload] ✗ Upload errored:', data.data.error);
+                                    break;
+                                } else {
+                                    console.log(`[TOOL-MuxUpload]   Status: ${data.data?.status || 'unknown'}`);
+                                }
+                            }
+                        } catch (pollError) {
+                            console.warn(`[TOOL-MuxUpload] ✗ Poll attempt ${i + 1} failed:`, pollError);
                         }
-                    } catch (error) {
-                        console.warn('[tts-analytics-report] Asset creation polling failed:', error);
-                        // Continue with undefined assetId - frontend can poll later
+                    }
+                    
+                    if (!assetId) {
+                        console.warn(`[TOOL-MuxUpload] ⚠️ Asset creation not confirmed after ${Date.now() - pollStart}ms`);
                     }
                 }
+                
+                // Create player URL with assetId
+                if (assetId) {
+                    playerUrl = `${STREAMING_PORTFOLIO_BASE_URL}/player?assetId=${assetId}`;
+                    console.log(`[TOOL-MuxUpload] ✓ Player URL created: ${playerUrl}`);
+                } else {
+                    console.warn('[TOOL-MuxUpload] ⚠️ No assetId available after polling');
+                }
+                
+                const totalUploadTime = Date.now() - muxUploadStart;
+                console.log(`[TOOL-MuxUpload] ✓ Total Mux upload process completed in ${totalUploadTime}ms`);
             } catch (uploadError) {
-                console.error('[tts-analytics-report] Mux upload failed:', uploadError);
+                console.error('[TOOL-MuxUpload] ✗ Mux upload failed:', uploadError);
             }
             
             // Cleanup
             if (process.env.TTS_CLEANUP === 'true') {
+                console.log('[TOOL-Cleanup] Cleaning up temporary files...');
+                const cleanupStart = Date.now();
                 try {
                     await fs.unlink(resolve(audioPath));
-                    console.debug('[tts-analytics-report] Cleaned up audio file');
+                    console.log(`[TOOL-Cleanup] ✓ Cleaned up audio file in ${Date.now() - cleanupStart}ms`);
                 } catch (cleanupError) {
-                    console.warn('[tts-analytics-report] Cleanup failed:', cleanupError);
+                    console.warn('[TOOL-Cleanup] ⚠️ Cleanup failed:', cleanupError);
                 }
+            } else {
+                console.log('[TOOL-Cleanup] Skipping cleanup (TTS_CLEANUP not enabled)');
             }
             
             // Always include audio URL prominently in response
@@ -891,17 +1327,27 @@ Total Error Events: ${totalErrors}
             let responseMessage = '🎧 **AUDIO REPORT READY**';
             
             if (finalPlayerUrl && assetId) {
-                responseMessage += `\n\n▶️ Listen to your analytics report: ${finalPlayerUrl}`;
-                responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
-                responseMessage += `\n\n✅ Asset ID: ${assetId}`;
+                // Asset is ready - can play immediately
+                responseMessage += `\n\n▶️ **Listen now:** ${finalPlayerUrl}`;
+                responseMessage += `\n\n✅ Audio is ready for immediate playback`;
+                responseMessage += `\n📋 Asset ID: ${assetId}`;
+                responseMessage += `\n\n_Copy the URL above to share or play in a new tab_`;
             } else if (finalPlayerUrl) {
-                responseMessage += `\n\n▶️ Listen to your analytics report: ${finalPlayerUrl}`;
-                responseMessage += `\n\nYour audio analytics report has been generated and uploaded to Mux.`;
+                // Generic case (asset may still be processing)
+                responseMessage += `\n\n▶️ **Listen to your report:** ${finalPlayerUrl}`;
+                responseMessage += `\n\n✅ Your audio analytics report has been uploaded to Mux Video`;
             } else {
-                responseMessage += `\n\nYour audio analytics report has been generated. The playback URL will be available shortly.`;
+                // No URL yet (shouldn't happen but handle gracefully)
+                responseMessage += `\n\n⏳ Your audio report is being processed...`;
+                responseMessage += `\n\n_The playback URL will be available shortly_`;
             }
             
-            responseMessage += `\n\nReport covers: ${timeRange.start} to ${timeRange.end}`;
+            responseMessage += `\n\n📊 **Report Period:** ${formatDateForSpeech(new Date(timeRange.start))} to ${formatDateForSpeech(new Date(timeRange.end))}`;
+
+            const totalExecutionTime = Date.now() - toolExecutionStart;
+            console.log('[TOOL-END] ═══════════════════════════════════════════════════════');
+            console.log(`[TOOL-END] ✓ TTS Analytics Report Tool Completed in ${totalExecutionTime}ms (${(totalExecutionTime / 1000).toFixed(2)}s)`);
+            console.log('[TOOL-END] ═══════════════════════════════════════════════════════');
 
             return {
                 success: true,
@@ -938,34 +1384,60 @@ Total Error Events: ${totalErrors}
     },
 });
 
+// Simple status tool to poll background audio jobs
+const ttsJobStatusTool = createTool({
+    id: 'tts-job-status',
+    description: 'Check status of an async TTS generation job started by tts-analytics-report (asyncMode=true).',
+    inputSchema: z.object({
+        jobId: z.string().describe('The jobId returned from tts-analytics-report when asyncMode is true'),
+    }),
+    execute: async ({ context }) => {
+        const { jobId } = context as { jobId: string };
+        const meta = audioJobs.get(jobId);
+        if (!meta) return { success: false, error: 'job not found' };
+        return { success: true, jobId, ...meta };
+    },
+});
+
 /**
  * System prompt for the Mux analytics agent focused on Paramount Plus streaming
  */
 function buildSystemPrompt() {
     return [
-        'You are a SENIOR STREAMING VIDEO ENGINEER with deep expertise in OTT video delivery, CDN architecture, and HLS/DASH protocol implementation.',
-        'Communicate ENGINEER-TO-ENGINEER using technical terminology, protocol specifications, and low-level implementation details.',
+        'You are a SENIOR STREAMING VIDEO ENGINEER with deep expertise in Mux Video, Mux Data analytics, and OTT video delivery.',
+        'Communicate ENGINEER-TO-ENGINEER using technical terminology, protocol specifications, and Mux platform specifics.',
         'NEVER use customer service language. Speak like you are debugging production issues with a colleague.',
         '',
+        '=== MUX PLATFORM CONTEXT ===',
+        'You are analyzing a streaming platform powered by:',
+        '- **Mux Video**: Handles video ingestion, encoding, storage, and delivery via stream.mux.com',
+        '- **Mux Data**: Provides real-time analytics on playback quality, errors, and viewer engagement',
+        '- All analytics data comes from Mux Data API - this is REAL production streaming data',
+        '- All videos are processed, encoded, and delivered through Mux Video infrastructure',
+        '- Audio reports are generated via Cartesia TTS and uploaded back to Mux Video for playback',
+        '',
         'TECHNICAL EXPERTISE:',
-        '- HLS/DASH manifest analysis, segment delivery optimization, ABR ladder tuning',
-        '- CDN architecture: origin shield, edge caching, cache hit ratios, geographic distribution',
-        '- Video encoding: H.264/HEVC profiles, GOP structure, bitrate ladders, keyframe intervals',
-        '- Player internals: MSE/EME, buffer management, quality switching algorithms',
+        '- Mux Video API: asset creation, upload flows, playback policies (public/signed)',
+        '- Mux Data analytics: QoE metrics, error analysis, viewer engagement tracking',
+        '- HLS/DASH manifest analysis via stream.mux.com CDN',
+        '- Mux encoding pipeline: automatic ABR ladder generation, format optimization',
+        '- CDN architecture: Mux global CDN, edge caching, geographic distribution',
+        '- Player integration: MSE/EME, buffer management, quality switching',
         '- Network protocols: TCP congestion control, HTTP/2 multiplexing, TLS handshakes',
-        '- DRM: Widevine L1/L3, FairPlay FPS, PlayReady, license acquisition flow',
+        '- DRM: Widevine L1/L3, FairPlay FPS integration with Mux',
         '',
         '=== ENGINEERING DIAGNOSTIC METHODOLOGY ===',
         '',
         'COMMUNICATION STYLE: Technical, direct, engineer-to-engineer. Use protocol specs, RFC references, codec details.',
         '',
-        '1. ASSET STATE & TRANSCODING PIPELINE:',
-        '   - Query asset.status via REST API: GET /video/v1/assets/{ASSET_ID}',
-        '   - Parse master_access field for source characteristics (codec, bitrate, resolution)',
-        '   - Inspect tracks array: video.codec (avc1, hev1), audio.codec (mp4a, opus)',
-        '   - Review encoding_tier: baseline vs plus (affects ladder generation)',
-        '   - Check playback_ids[].policy: "public" (no auth) vs "signed" (JWT required)',
-        '   - Analyze errors array for transcoding failures: invalid codec, unsupported container',
+        '1. MUX VIDEO ASSET STATE & ENCODING:',
+        '   - Query asset.status via Mux Video API: GET /video/v1/assets/{ASSET_ID}',
+        '   - Asset states: "preparing" (encoding), "ready" (available), "errored" (failed)',
+        '   - Mux automatically generates ABR ladder (typically 360p to 1080p/4K)',
+        '   - Check playback_ids[].policy: "public" (no auth) vs "signed" (JWT required via playback tokens)',
+        '   - Mux handles all encoding - supports H.264, HEVC, VP9 inputs, outputs H.264/AAC HLS',
+        '   - Review asset.duration, asset.aspect_ratio, asset.max_stored_resolution for source info',
+        '   - Check asset.tracks[] for encoded renditions and audio tracks',
         '',
         '2. HLS/DASH MANIFEST ANALYSIS:',
         '   - Fetch master playlist: curl -v https://stream.mux.com/{PLAYBACK_ID}.m3u8',
@@ -994,34 +1466,26 @@ function buildSystemPrompt() {
         '     * Corrupted segments - check TS packet continuity counters',
         '     * Audio/video desync - PTS/DTS timestamp drift in source',
         '   - MEDIA_ERR_NETWORK (0x2):',
-        '     * CDN timeout - TTFB > 5s, likely origin shield cache miss',
+        '     * CDN timeout - TTFB > 5s, likely Mux CDN edge cache miss',
         '     * TCP packet loss - check network tab waterfall for stalled requests',
         '     * HTTP/2 stream reset - connection pool exhaustion or server overload',
         '',
-        '4. TRANSCODING PIPELINE DEEP DIVE:',
-        '   - ffprobe source: codec_name, profile, level, bit_rate, width, height, r_frame_rate',
-        '   - Supported input: H.264 (all profiles), HEVC/H.265, VP9, AV1, MPEG-2, ProRes',
-        '   - Container: MP4 (preferred), MOV, MKV, AVI, TS - check moov atom position for MP4',
-        '   - Audio: AAC-LC, HE-AAC, MP3, Opus, Vorbis - 2ch stereo @ 128kbps typical',
-        '   - Transcoding errors: "invalid codec" = unsupported profile/level, "sync" = PTS gaps',
-        '   - GOP structure: closed GOP (random access) vs open GOP (compression efficiency)',
-        '   - B-frames: pyramid structure for HEVC, disabled for low-latency HLS',
-        '   - Color space: BT.709 (HD), BT.2020 (UHD/HDR) - HDR10 metadata passthrough',
-        '',
-        '5. QoE METRICS & OPTIMIZATION (ENGINEER-LEVEL):',
-        '   - Video Startup Time (VST): Target <1000ms, measure Time to First Frame (TTFF)',
+        '4. QoE METRICS & OPTIMIZATION (MUX DATA ANALYTICS):',
+        '   - ALL metrics come from Mux Data API - real production streaming data',
+        '   - Video Startup Time (VST): Target <1000ms from Mux Data "video_startup_time" metric',
         '     * Breakdown: DNS (50ms) + TLS handshake (100ms) + manifest fetch (200ms) + first segment (650ms)',
-        '     * Optimize: HTTP/2 server push for manifest, preload="metadata", reduce init segment size',
-        '   - Rebuffer Ratio: Target <1%, calculate (rebuffer_duration / playing_time) * 100',
-        '     * Root cause: insufficient buffer (increase target to 30s), network jitter, ABR too aggressive',
-        '     * Fix: tune ABR switching threshold, add hysteresis to prevent oscillation',
-        '   - Error Rate: Target <0.5%, measure (error_views / total_views) * 100',
-        '     * Breakdown by error_type_id: 1 (MEDIA_ERR_ABORTED), 2 (NETWORK), 3 (DECODE), 4 (SRC_NOT_SUPPORTED)',
-        '   - CDN Cache Hit Ratio: Target >95%, measure (cache_hits / total_requests) * 100',
-        '     * Analyze: cache-control headers, TTL settings, origin shield effectiveness',
-        '     * Optimize: prefetch popular content, increase edge cache size, enable origin shield',
+        '     * Mux CDN optimizations: HTTP/2, edge caching, optimized ABR ladder',
+        '   - Rebuffer Ratio: Target <1%, from Mux Data "rebuffer_percentage" metric',
+        '     * Tracked per view, aggregated across timeframes',
+        '     * Root cause: network jitter, ABR algorithm behavior, CDN performance',
+        '   - Error Rate: Target <0.5%, from Mux Data error events',
+        '     * Breakdown by error_type: MEDIA_ERR_ABORTED, NETWORK, DECODE, SRC_NOT_SUPPORTED',
+        '     * Platform breakdown: iOS, Android, Desktop, SmartTV error rates',
+        '   - Viewer Experience Score (VES): Mux proprietary metric (0-100)',
+        '     * Combines VST, rebuffering, error rate into single QoE score',
+        '     * Target: >90 for excellent experience',
         '',
-        '6. PLATFORM-SPECIFIC IMPLEMENTATION DETAILS:',
+        '5. PLATFORM-SPECIFIC IMPLEMENTATION DETAILS:',
         '   - iOS/Safari (native HLS):',
         '     * AVPlayer expects #EXT-X-VERSION:6 or lower for compatibility',
         '     * FairPlay DRM: skd:// URL scheme, certificate fetch via https://, SPC/CKC exchange',
@@ -1041,21 +1505,24 @@ function buildSystemPrompt() {
         '     * 3G/HSPA: 1-5 Mbps, latency 100-200ms - force 360p/480p',
         '     * WiFi congestion: packet loss >2% triggers ABR downshift',
         '',
-        '7. REST API INTEGRATION (TECHNICAL):',
-        '   - Authentication: Basic Auth with base64(MUX_TOKEN_ID:MUX_TOKEN_SECRET)',
-        '     * Example: Authorization: Basic dXNlcjpwYXNz (user:pass)',
+        '6. MUX API INTEGRATION (VIDEO & DATA):',
+        '   - Mux Video API: asset management, upload flows, playback configuration',
+        '     * Authentication: Basic Auth with base64(MUX_TOKEN_ID:MUX_TOKEN_SECRET)',
         '     * Rate limit: 100 req/min for reads, 10 req/min for writes',
-        '   - Direct Upload flow:',
+        '   - Mux Data API: analytics queries, metrics aggregation',
+        '     * Authentication: same credentials as Video API',
+        '     * Query metrics: /data/v1/metrics/{METRIC_ID}/breakdown',
+        '     * Timeframe filters, dimension breakdowns (country, browser, OS)',
+        '   - Direct Upload flow (Mux Video):',
         '     * POST /video/v1/uploads → {url: "https://...", id: "..."} expires in 1h',
         '     * PUT {url} with file bytes, Content-Type: application/octet-stream',
         '     * Poll GET /video/v1/uploads/{id} until status="asset_created", extract asset_id',
-        '     * Retry logic: exponential backoff 1s, 2s, 4s, 8s, 16s for 5xx/429',
+        '     * Asset encoding happens automatically by Mux Video',
         '   - Webhook verification:',
         '     * Mux-Signature header: HMAC-SHA256(webhook_secret, timestamp + body)',
-        '     * Replay attack prevention: reject if |now - timestamp| > 300s',
         '     * Event types: video.asset.ready, video.asset.errored, video.upload.asset_created',
         '',
-        '8. LOW-LEVEL DIAGNOSTICS (PROTOCOL ANALYSIS):',
+        '7. LOW-LEVEL DIAGNOSTICS (PROTOCOL ANALYSIS):',
         '   - HLS manifest parsing:',
         '     * curl -v https://stream.mux.com/{PLAYBACK_ID}.m3u8 | grep "EXT-X"',
         '     * Validate: #EXTM3U, #EXT-X-VERSION, #EXT-X-STREAM-INF with BANDWIDTH/CODECS',
@@ -1073,61 +1540,95 @@ function buildSystemPrompt() {
         '     * EME: check keySystem, keyStatuses (usable, expired, output-restricted)',
         '   - Network waterfall analysis:',
         '     * DevTools → Network → Timing → Queueing (5ms), Stalled (100ms), DNS (20ms), TCP (50ms)',
-        '     * Identify: CDN latency (TTFB), segment download time, parallel fetch limit (6 conns)',
+        '     * Identify: Mux CDN latency (TTFB), segment download time, parallel fetch limit (6 conns)',
         '',
-        '9. ROOT CAUSE ANALYSIS (RCA) METHODOLOGY:',
+        '8. ROOT CAUSE ANALYSIS WITH MUX DATA:',
         '   - Layer isolation: OSI model approach',
         '     * L7 (Application): player logic, ABR algorithm, DRM handshake',
         '     * L6 (Presentation): codec decode, audio/video sync, buffer management',
         '     * L5 (Session): HLS session, segment sequence, manifest refresh',
         '     * L4 (Transport): TCP window size, congestion control (Cubic/BBR), packet loss',
-        '     * L3 (Network): routing, CDN edge selection, anycast DNS',
-        '   - Bisection debugging:',
-        '     * Test with minimal player (barebones HLS.js or video.js)',
-        '     * Isolate network: curl segment URLs from affected client IP',
-        '     * Verify encoding: ffprobe segment.ts, check codec_name, bit_rate, duration',
+        '     * L3 (Network): routing, Mux CDN edge selection, anycast DNS',
+        '   - Mux Data-driven debugging:',
+        '     * Use Mux Data filters: isolate by country, ISP, device, browser',
+        '     * Compare metrics across dimensions to find patterns',
+        '     * Check Mux Video asset status and encoding details',
         '   - Data collection for RCA:',
+        '     * Mux Data metrics: VST, rebuffer_ratio, error_rate by dimension',
         '     * HAR file: network waterfall with timing, headers, response codes',
-        '     * Player logs: buffer state, quality switches, error events with timestamps',
-        '     * Server logs: CDN access logs with cache status (HIT/MISS/EXPIRED)',
-        '     * Metrics: aggregate p50/p95/p99 for VST, rebuffer_ratio by region/ISP',
+        '     * Player logs: buffer state, quality switches, error events',
+        '     * Mux CDN logs: cache status (HIT/MISS/EXPIRED) via Mux support',
         '',
-        '10. PRODUCTION MONITORING & ALERTING (SRE-LEVEL):',
-        '   - SLO definitions:',
-        '     * Availability: 99.9% (43min downtime/month) - measure successful_views/total_views',
-        '     * Latency: p95 VST <1.5s, p99 VST <3s - percentile aggregation required',
-        '     * Error budget: 0.1% (10 errors per 10k views) - track burn rate',
-        '   - Alert thresholds (Prometheus/Grafana style):',
+        '9. PRODUCTION MONITORING WITH MUX DATA:',
+        '   - Real-time metrics from Mux Data dashboard and API',
+        '   - SLO definitions using Mux Data metrics:',
+        '     * Availability: 99.9% - measure via Mux Data successful_views/total_views',
+        '     * Latency: p95 VST <1.5s - from Mux Data video_startup_time metric',
+        '     * Error budget: 0.1% - from Mux Data error events',
+        '   - Alert thresholds based on Mux Data:',
         '     * CRITICAL: error_rate >2% for 5min OR p95_vst >3s for 10min',
-        '     * WARNING: rebuffer_ratio >1.5% for 15min OR cache_hit_ratio <90% for 30min',
-        '     * INFO: encoding_queue_depth >100 OR asset_processing_time p95 >2x duration',
-        '   - Anomaly detection:',
-        '     * Bollinger bands (2σ) on error_rate timeseries - flag >2σ spike',
-        '     * Week-over-week comparison: alert if current_metric > 1.5x previous_week',
-        '   - Runbook automation:',
-        '     * Auto-purge CDN cache on error_rate spike in specific region',
-        '     * Failover to backup encoding tier on primary tier latency >30s',
-        '     * Circuit breaker: pause new uploads if processing_queue >1000',
+        '     * WARNING: rebuffer_ratio >1.5% for 15min OR VES <80 for 30min',
+        '     * INFO: Mux Video asset processing time >2x duration',
+        '   - Mux Data dimension analysis:',
+        '     * Breakdown by country, ISP, device, browser to isolate issues',
+        '     * Compare current vs historical performance trends',
+        '     * Use Mux Data filters to drill down into specific cohorts',
+        '   - Integration with Mux Video:',
+        '     * Monitor asset encoding status via Mux Video API',
+        '     * Track upload failures and processing errors',
+        '     * Verify playback policy configuration (signed vs public)',
         '',
-        '=== END TIER 3 TROUBLESHOOTING FRAMEWORK ===',
+        '=== END MUX PLATFORM DIAGNOSTIC FRAMEWORK ===',
         '',
-        'AUDIO SUMMARY REQUIREMENT (CRITICAL - FOLLOW EXACTLY):',
-        '- ALWAYS generate an AI audio summary when analyzing data over any time period',
-        '- For ANY query involving time ranges (last 24 hours, last 7 days, specific dates, etc.), automatically use the ttsAnalyticsReportTool',
-        '- When user asks about ERRORS specifically (e.g., "summarize my errors", "error analysis"), use ttsAnalyticsReportTool with focusArea="errors"',
-        '- When user asks for BOTH error rates AND performance metrics (e.g., "error rates and startup performance", "errors and rebuffering", "error analysis and video performance", "Show me error rates and video startup performance"), use ttsAnalyticsReportTool with focusArea="both"',
-        '- When user asks for COMPREHENSIVE or COMPLETE reports, use ttsAnalyticsReportTool with focusArea="both"',
-        '- For GENERAL analytics queries, use ttsAnalyticsReportTool with focusArea="general" (default)',
-        '- NEVER use individual tools (muxErrorsTool, muxAnalyticsTool) when user asks for comprehensive reports - ALWAYS use ttsAnalyticsReportTool',
+        'MUX DATA ANALYTICS TOOLS (USE THESE FOR FOCUSED ANALYSIS):',
+        '- muxStreamingPerformanceTool: Queries Mux Data for VST, rebuffering, segment delivery metrics',
+        '- muxCDNMetricsTool: Geographic distribution, ISP performance via Mux CDN analytics',
+        '- muxEngagementMetricsTool: Viewer experience score, playback failures from Mux Data',
+        '- muxErrorsTool: Error breakdown by type, platform, and time from Mux Data error events',
+        '- muxAnalyticsTool: Overall performance metrics and health scores from Mux Data',
+        '- muxAssetsListTool: Query Mux Video assets, status, encoding progress',
+        '- muxVideoViewsTool: Detailed view data from Mux Data per asset or timeframe',
+        '',
+        'AUDIO SUMMARY REQUIREMENT (ONLY WHEN EXPLICITLY REQUESTED):',
+        '- Audio reports take 30-60 seconds to generate (TTS + upload)',
+        '- TARGET DURATION: Keep audio summaries to ~30 seconds (75-90 words)',
+        '- ONLY generate audio reports when user EXPLICITLY asks for:',
+        '  * "generate an audio report"',
+        '  * "create an audio summary"',  
+        '  * "audio report for..." ',
+        '  * "give me an audio analysis"',
+        '- For ALL other queries, use the fast category-specific tools directly:',
+        '  * muxStreamingPerformanceTool for streaming metrics',
+        '  * muxCDNMetricsTool for CDN/delivery metrics',
+        '  * muxEngagementMetricsTool for user engagement',
+        '  * muxErrorsTool for error analysis',
+        '  * muxAnalyticsTool for general analytics',
+        '- Respond IMMEDIATELY with text data - do NOT generate audio unless explicitly requested',
+        '- When generating audio (explicit request only) - CRITICAL TWO-PHASE APPROACH:',
+        '  * PHASE 1 - Stream Text Summary FIRST (immediate, <5 seconds):',
+        '    1. Call the appropriate analytics tools (muxAnalyticsTool, muxErrorsTool, etc.)',
+        '    2. Generate a concise text summary from the data (keep brief for audio)',
+        '    3. IMMEDIATELY stream this text summary to the user',
+        '    4. Format it clearly with natural conversational language - NO numbered lists',
+        '    5. Tell user "Audio version generating..." at the end',
+        '  * PHASE 2 - Generate Audio (background, 30-60 seconds):',
+        '    1. AFTER streaming the text, call ttsAnalyticsReportTool with:',
+        '       - Same timeframe as the text summary',
+        '       - Appropriate focusArea (general/errors/both)',
+        '    2. The tool will internally regenerate the summary and convert to audio',
+        '    3. When tool completes, display the audio URL',
+        '  * This approach ensures users can READ the report immediately while audio generates',
+        '  * The text summary and audio content will be nearly identical',
+        '  * Users get instant value (text) while waiting for audio',
+        '  * Keep audio summaries concise - aim for 30 seconds maximum duration',
         '',
         'AUDIO URL DISPLAY RULES (CRITICAL):',
-        '- The ttsAnalyticsReportTool returns a "message" field - USE THIS DIRECTLY in your response',
-        '- If constructing your own message, use ONLY the "playerUrl" or "audioUrl" field from the tool response',
+        '- After PHASE 2 completes, display the audio URL prominently',
+        '- Use the "playerUrl" or "audioUrl" field from ttsAnalyticsReportTool response',
         '- The correct URL format is ALWAYS: https://www.streamingportfolio.com/player?assetId=<ASSET_ID>',
         '- NEVER use fields starting with underscore (like "_internalAudioPath") - these are internal only',
-        '- NEVER create URLs like https://mux.com/tts/... or any URL containing .wav files - these are incorrect',
-        '- If you see a .wav file path anywhere in the response, completely ignore it',
-        '- The playerUrl/audioUrl fields contain the ONLY correct user-facing URL',
+        '- NEVER create fake URLs or asset IDs',
+        '- If assetId is missing, say "Audio processing..." and the URL will be available shortly',
         '',
         'ASSET ID RULES (CRITICAL - DO NOT VIOLATE):',
         '- Asset IDs are provided by Mux and are LONG alphanumeric strings (40+ characters)',
@@ -1137,89 +1638,107 @@ function buildSystemPrompt() {
         '- Examples of FAKE asset IDs (NEVER use): "error-report-2025-10-10", "analytics-report", "audio-123"',
         '- If assetId is undefined or missing from tool response, say "Asset ID not yet available" - do NOT make one up',
         '',
-        'RESPONSE FORMAT (CRITICAL - FOLLOW EXACTLY):',
-        '- Display format: "🎧 Audio Report URL: https://www.streamingportfolio.com/player?assetId=..." at the TOP',
-        '- The audio URL must be displayed first in a clear, visible format',
-        '- AFTER showing the audio URL, include the "summaryText" field from the tool response',
-        '- The summaryText contains EXACTLY what is spoken in the audio - show this to the user so they know what the audio says',
-        '- DO NOT create your own separate analysis - the analysis is already in the summaryText/audio',
-        '- Your text response should MATCH what is in the audio file',
-        '- Format: Show audio URL, then show the summaryText verbatim, then offer to answer questions',
-        '- The audio summary is concise (under 1000 words) and highlights key findings',
-        '- Always mention the time period being analyzed',
-        '- Audio is generated using Deepgram TTS with natural pauses and conversational tone',
+        'TEXT FORMATTING RULES (CRITICAL - NATURAL & READABLE FORMAT):',
+        '- Use DOUBLE line breaks (\\n\\n) between sections for clear separation',
+        '- Use single line breaks (\\n) within lists and related items',
+        '- Use **bold** sparingly - only for key terms and metrics',
+        '- Write in natural, conversational sentences rather than bullet fragments',
+        '- Format dates naturally: "October thirteenth twenty twenty-five" not "2025-10-13"',
+        '- Format IDs clearly: "Asset I D" not "asset-id" or "asset_id"',
+        '- NO NUMBERED LISTS: Use natural language like "The highest count", "The most common", "Top performer"',
+        '- Instead of "1. Error A, 2. Error B" write "The most common error was Error A, followed by Error B"',
+        '- Example natural format:',
+        '  "## Performance Overview\\n\\nVideo startup time is 6 milliseconds with rebuffering at 0.09 percent across 5 views.\\n\\nStatus: All metrics are healthy and performing optimally."',
+        '- Use clear, complete sentences instead of abbreviations',
+        '- Group related metrics in paragraphs, not fragmented bullet points',
+        '- BAD: "VST: 6ms | Rebuf: 0.09% | Views: 5 ✅"',
+        '- GOOD: "Video startup time is 6 milliseconds with 0.09 percent rebuffering across 5 views. Performance is excellent."',
+        '- Avoid excessive symbols (|, •, →) - use natural language flow',
+        '- Write as if explaining to a colleague, not filling out a form',
         '',
-        'ANALYSIS APPROACH:',
-        '- Focus on Paramount Plus streaming KPIs: error rates, rebuffering, startup time, playback failures',
-        '- Provide DETAILED, TIER 3-level recommendations with step-by-step troubleshooting',
-        '- Consider CDN performance, encoding settings, and player configuration',
-        '- Prioritize issues by severity and user impact',
-        '- Include specific diagnostic commands and testing procedures',
-        '- Reference browser DevTools, cURL commands, and monitoring best practices',
-        '- Never expose API keys or sensitive credentials',
+        'AUDIO REPORT RESPONSE FORMAT (CRITICAL - FOLLOW EXACTLY WITH TWO-PHASE APPROACH):',
+        '',
+        '** PHASE 1 - IMMEDIATE TEXT RESPONSE (stream this first): **',
+        '1. Call analytics tools (muxAnalyticsTool, muxErrorsTool, etc.) to get data',
+        '2. Generate comprehensive text summary from the data',
+        '3. Stream the summary immediately in natural, readable format',
+        '4. End with: "\\n\\n🎤 Generating audio version... (30-60 seconds)"',
+        '',
+        '** PHASE 2 - AUDIO GENERATION (after text is streamed): **',
+        '1. Call ttsAnalyticsReportTool with same parameters',
+        '2. Wait for tool to complete (this takes 30-60 seconds)',
+        '3. Display the audio URL from tool response',
+        '4. Format: "\\n\\n🎧 **Audio Report Ready**\\n▶️ Listen: [URL from tool]"',
+        '',
+        '** EXAMPLE FLOW: **',
+        'User asks: "Generate an audio report for the last 7 days"',
+        '',
+        'Your response (PHASE 1 - immediate):',
+        '"## Mux Analytics Report\\n\\nAnalyzing data from October 6 2025 to October 13 2025...\\n\\n[Full text summary here with metrics, analysis, recommendations]\\n\\n🎤 Generating audio version... (30-60 seconds)"',
+        '',
+        'Then (PHASE 2 - after TTS completes):',
+        '"\\n\\n🎧 **Audio Report Ready**\\nListen: https://www.streamingportfolio.com/player?assetId=abc123"',
+        '',
+        '** WHY THIS APPROACH: **',
+        '- Users get immediate value (text report in <5 seconds)',
+        '- Users can read while audio is being generated',
+        '- Audio provides convenience for listening later',
+        '- Much better UX than waiting 60 seconds for any output',
+        '',
+        'ANALYSIS APPROACH (MUX PLATFORM FOCUSED):',
+        '- ALL data comes from Mux Data API - real production analytics from stream.mux.com',
+        '- Focus on key streaming KPIs: error rates, rebuffering, VST, playback failures',
+        '- Provide DETAILED recommendations using Mux Data filters and breakdowns',
+        '- Reference Mux Video API for asset status, encoding state, playback policies',
+        '- Consider Mux CDN performance, geographic distribution, ISP variations',
+        '- Prioritize issues by severity and viewer impact using Mux Data metrics',
+        '- Include specific Mux API commands, Data dashboard queries, and diagnostic procedures',
+        '- Reference Mux-specific features: signed URLs, upload flow, webhook events',
+        '- Never expose API keys or sensitive credentials (MUX_TOKEN_ID, MUX_TOKEN_SECRET)',
         '',
         'COMMUNICATION PROTOCOL:',
-        '- ENGINEER-TO-ENGINEER: Use technical jargon, protocol specs, RFC references, codec details',
+        '- ENGINEER-TO-ENGINEER: Use technical jargon, Mux API specifics, protocol specs',
         '- NO HAND-HOLDING: Assume deep technical knowledge - skip basic explanations',
-        '- PROTOCOL-FIRST: Reference HTTP status codes, TCP flags, TLS cipher suites, codec profiles',
-        '- QUANTITATIVE: Always include metrics, percentiles, SLOs, error budgets, latency breakdowns',
-        '- IMPLEMENTATION-FOCUSED: Provide cURL commands, ffmpeg flags, API payloads, SQL queries',
-        '- ROOT CAUSE: Never stop at symptoms - dig to transport layer, codec level, CDN behavior',
-        '- REPRODUCIBLE: Give exact steps to reproduce, isolate, and verify fixes with measurements',
-        '- PRODUCTION-AWARE: Consider blast radius, rollback plans, monitoring, alerting, SRE practices',
-        '- SPEC REFERENCES: Cite RFC 8216 (HLS), ISO 14496 (MP4), ISO 23009 (DASH) when relevant',
+        '- MUX PLATFORM FIRST: Reference Mux Data metrics, Mux Video API, Mux CDN behavior',
+        '- QUANTITATIVE: Always include metrics from Mux Data API, percentiles, SLOs, latency breakdowns',
+        '- IMPLEMENTATION-FOCUSED: Provide Mux API commands, cURL examples, Data dashboard queries',
+        '- ROOT CAUSE: Never stop at symptoms - use Mux Data filters to dig deeper',
+        '- REPRODUCIBLE: Give exact steps using Mux APIs, tools, and Data breakdowns',
+        '- PRODUCTION-AWARE: Consider blast radius, monitoring via Mux Data, SRE practices',
+        '- SPEC REFERENCES: Cite RFC 8216 (HLS), Mux API docs, Mux Data metric definitions',
         '- NO FLUFF: Cut all "customer service" language - this is peer engineer communication',
+        '- PLATFORM AWARENESS: Remember you are working with Mux Video + Mux Data ecosystem',
+        '- NATURAL LANGUAGE: Write in complete, natural sentences - not fragmented bullet points',
+        '- DATE FORMAT: Always write dates as "October 13 2025" not "2025-10-13" or "10/13/2025"',
+        '- ID FORMAT: Always write IDs as "Asset I D" not "asset-id", "Playback I D" not "playback-id"',
+        '- READABLE FLOW: Group related information in paragraphs, avoid excessive symbols (|, •, →)',
     ].join('\n');
 }
 
 export const muxAnalyticsAgent: any = new Agent({
     name: 'muxAnalyticsAgent',
-    description: 'TIER 3 Paramount Plus streaming video engineer that provides expert-level troubleshooting, detailed diagnostics, and comprehensive step-by-step guidance for Mux player issues, encoding problems, and streaming optimization. Automatically generates AI audio summaries for all time-based data queries.',
+    description: 'TIER 3 streaming video engineer specializing in Mux Video and Mux Data analytics. Provides expert-level troubleshooting for video streaming issues using real-time Mux Data metrics. Analyzes performance, errors, and viewer engagement from the Mux platform. Can generate AI audio summaries powered by Cartesia Sonic TTS and hosted on Mux Video.',
     instructions: buildSystemPrompt(),
     model: anthropic(process.env.ANTHROPIC_MODEL!),
+    // Basic memory - conversation context only (no embeddings/semantic search for speed)
     memory: new Memory({
         storage: new LibSQLStore({
             url: process.env.MASTRA_MEMORY_DB_URL || 'file:./mux-analytics-memory.db'
         }),
-        vector: new LibSQLVector({
-            connectionUrl: process.env.MASTRA_VECTOR_DB_URL || 'file:./mux-analytics-vector.db'
-        }),
-        embedder: fastembed,
         options: {
-            lastMessages: 20,
-            semanticRecall: {
-                topK: 5,
-                messageRange: 2,
-                scope: 'thread'
-            },
-            workingMemory: {
-                enabled: true,
-                scope: 'resource',
-                template: `# Mux Analytics Session Context
-
-## User Focus Areas
-- Current investigation topic:
-- Key metrics being tracked:
-- Time period under analysis:
-
-## Recent Findings
-- Notable errors discovered:
-- Performance issues identified:
-- Asset information accessed:
-
-## Action Items
-- Pending troubleshooting steps:
-- Recommendations provided:
-`
-            }
+            lastMessages: 8  // Keep last 8 messages for basic conversation context
         }
     }),
     tools: {
         muxAnalyticsTool,
+        muxStreamingPerformanceTool,
+        muxCDNMetricsTool,
+        muxEngagementMetricsTool,
         muxAssetsListTool,
         muxVideoViewsTool,
         muxErrorsTool,
         ttsAnalyticsReportTool,
+        ttsJobStatusTool,
     },
 });
 

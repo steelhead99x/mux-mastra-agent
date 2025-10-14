@@ -109,3 +109,5 @@ test-outputs/
 /node_modules
 /backend/.mastra        
 .env.backup
+/docs 
+/backend/docs

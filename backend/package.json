@@ -11,7 +11,8 @@
     "post-build-env": "./scripts/post-build-env.sh",
     "restore-env": "./scripts/ensure-env-enhanced.sh",
     "check-env": "./scripts/check-env.sh",
-    "build": "npm run test && NODE_OPTIONS=--max-old-space-size=2048 npm run compile && npm run post-build-env",
+    "build": "NODE_OPTIONS=--max-old-space-size=2048 npm run compile && npm run post-build-env",
+    "build:test": "npm run test && NODE_OPTIONS=--max-old-space-size=2048 npm run compile && npm run post-build-env",
     "compile": "NODE_OPTIONS=--max-old-space-size=2048 tsc --build --verbose",
     "clean": "rm -rf dist .mastra",
     "prebuild": "npm run clean && npm run typecheck",
@@ -34,6 +35,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
+    "@anush008/tokenizers-linux-x64-musl": "^0.10.3",
     "@cartesia/cartesia-js": "^2.2.5",
     "@deepgram/sdk": "^4.11.2",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

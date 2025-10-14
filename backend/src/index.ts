@@ -92,14 +92,16 @@ if (!isPlaygroundMode) {
   // Speech-to-text API routes
   app.use('/api', speechToTextRouter);
   
-  // Enhanced health check with MCP status
-  app.get('/health', async (_req: any, res: any) => {
+  // Health check handler (reused for both endpoints)
+  const healthCheckHandler = async (_req: any, res: any) => {
     try {
       // Basic health check
       const health: any = { 
         status: 'healthy', 
         service: 'mux-analytics-agent',
         timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage(),
         environment: process.env.NODE_ENV,
         workingDirectory: process.cwd(),
         mcpStatus: 'unknown'
@@ -130,7 +132,11 @@ if (!isPlaygroundMode) {
         environment: process.env.NODE_ENV
       });
     }
-  });
+  };
+  
+  // Enhanced health check with MCP status (available on both endpoints)
+  app.get('/health', healthCheckHandler);
+  app.get('/api/health', healthCheckHandler);
   
   // MCP Debug endpoint for troubleshooting
   app.get('/debug/mcp', async (_req: any, res: any) => {
