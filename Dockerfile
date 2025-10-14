@@ -50,7 +50,7 @@ COPY .npmrc ./
 
 # Install all dependencies for all workspaces (including dev)
 # Force update MCP SDK to prevent version conflicts during build
-RUN npm ci --workspaces --include=dev --no-optional --ignore-scripts && \
+RUN npm ci --workspaces --include=dev --ignore-scripts && \
     npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts
 
 # Build shared package
