@@ -675,7 +675,7 @@ const ttsAnalyticsReportTool = createTool({
             z.array(z.number()).length(2).describe("Unix timestamp array [start, end] for analysis period")
         ]).optional(),
         includeAssetList: z.boolean().describe("Whether to include asset list in the report").optional(),
-        focusArea: z.enum(['general', 'errors', 'both']).describe("What to focus on: 'general' for overall analytics, 'errors' for error analysis, 'both' for comprehensive report").optional(),
+        focusArea: z.enum(['general', 'errors', 'both', 'streaming', 'cdn', 'engagement']).describe("What to focus on: 'general' for overall analytics, 'errors' for error analysis, 'both' for comprehensive, 'streaming' for performance metrics, 'cdn' for geographic/delivery, 'engagement' for viewer metrics").optional(),
         asyncMode: z.boolean().describe("When true, run TTS generation + Mux upload in background, return jobId immediately").optional(),
     }),
     execute: async ({ context }) => {
@@ -685,7 +685,7 @@ const ttsAnalyticsReportTool = createTool({
         console.log('[TOOL-START] ═══════════════════════════════════════════════════════');
         
         try {
-            const { timeframe, includeAssetList, focusArea, asyncMode } = context as { timeframe?: string | number[]; includeAssetList?: boolean; focusArea?: 'general' | 'errors' | 'both'; asyncMode?: boolean };
+            const { timeframe, includeAssetList, focusArea, asyncMode } = context as { timeframe?: string | number[]; includeAssetList?: boolean; focusArea?: 'general' | 'errors' | 'both' | 'streaming' | 'cdn' | 'engagement'; asyncMode?: boolean };
             
             const actualFocusArea = focusArea || 'general';
             console.log(`[TOOL-Config] Focus Area: ${actualFocusArea}, Include Assets: ${includeAssetList}, Timeframe: ${JSON.stringify(timeframe)}`);
@@ -717,7 +717,7 @@ const ttsAnalyticsReportTool = createTool({
             
             // Fetch category-specific data based on focus area
             if (actualFocusArea === 'general' || actualFocusArea === 'both') {
-                console.log('[TOOL-DataFetch] Fetching analytics data from Mux API...');
+                console.log('[TOOL-DataFetch] Fetching all analytics data from Mux API...');
                 const dataFetchStart = Date.now();
                 try {
                     // Fetch all category-specific metrics
@@ -749,6 +749,39 @@ const ttsAnalyticsReportTool = createTool({
                 } catch (error) {
                     console.error('[TOOL-DataFetch] ✗ Category fetch failed:', error);
                 }
+            } else if (actualFocusArea === 'streaming') {
+                // Fetch only streaming performance data
+                console.log('[TOOL-DataFetch] Fetching streaming performance data from Mux API...');
+                const dataFetchStart = Date.now();
+                try {
+                    streamingResult = await (muxStreamingPerformanceTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                    console.log(`[TOOL-DataFetch] ✓ Streaming performance data fetched in ${Date.now() - dataFetchStart}ms`);
+                } catch (error) {
+                    console.error('[TOOL-DataFetch] ✗ Streaming performance fetch failed:', error);
+                    streamingResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            } else if (actualFocusArea === 'cdn') {
+                // Fetch only CDN and geographic data
+                console.log('[TOOL-DataFetch] Fetching CDN and geographic data from Mux API...');
+                const dataFetchStart = Date.now();
+                try {
+                    cdnResult = await (muxCDNMetricsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                    console.log(`[TOOL-DataFetch] ✓ CDN data fetched in ${Date.now() - dataFetchStart}ms`);
+                } catch (error) {
+                    console.error('[TOOL-DataFetch] ✗ CDN fetch failed:', error);
+                    cdnResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
+            } else if (actualFocusArea === 'engagement') {
+                // Fetch only engagement metrics
+                console.log('[TOOL-DataFetch] Fetching engagement metrics from Mux API...');
+                const dataFetchStart = Date.now();
+                try {
+                    engagementResult = await (muxEngagementMetricsTool as any).execute({ context: { timeframe: parsedTimeframe } });
+                    console.log(`[TOOL-DataFetch] ✓ Engagement data fetched in ${Date.now() - dataFetchStart}ms`);
+                } catch (error) {
+                    console.error('[TOOL-DataFetch] ✗ Engagement fetch failed:', error);
+                    engagementResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                }
             }
             
             // Fetch error data if needed
@@ -767,10 +800,16 @@ const ttsAnalyticsReportTool = createTool({
             let summaryText: string;
             let timeRange: { start: string; end: string };
             
-            // Determine time range from either result
-            if (analyticsResult?.success) {
+            // Determine time range from any successful result
+            if (analyticsResult?.success && analyticsResult.timeRange) {
                 timeRange = analyticsResult.timeRange;
-            } else if (errorsResult?.success) {
+            } else if (streamingResult?.success && streamingResult.timeRange) {
+                timeRange = streamingResult.timeRange;
+            } else if (cdnResult?.success && cdnResult.timeRange) {
+                timeRange = cdnResult.timeRange;
+            } else if (engagementResult?.success && engagementResult.timeRange) {
+                timeRange = engagementResult.timeRange;
+            } else if (errorsResult?.success && errorsResult.timeRange) {
                 timeRange = errorsResult.timeRange;
             } else if (parsedTimeframe && parsedTimeframe.length === 2) {
                 timeRange = {
@@ -783,6 +822,8 @@ const ttsAnalyticsReportTool = createTool({
                     end: new Date().toISOString()
                 };
             }
+            
+            console.log(`[TOOL-Timeframe] Using timeRange: ${timeRange.start} to ${timeRange.end}`);
             
             // If async, start background job and return fast
             if (asyncEnabled) {
@@ -865,12 +906,143 @@ const ttsAnalyticsReportTool = createTool({
                                     summaryText += analysis.recommendations[0];
                                 }
                             }
-                        } else if (analyticsResult?.success) {
-                            const { metrics, analysis } = analyticsResult;
-                            summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
-                        } else {
-                            throw new Error('No analytics data available to generate audio summary');
-                        }
+            } else if (actualFocusArea === 'streaming') {
+                // Streaming-focused report
+                if (!streamingResult?.success) {
+                    throw new Error('Unable to retrieve streaming performance data. Check Mux Data API access.');
+                }
+                
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                
+                summaryText = `## Streaming Performance Report\n\n`;
+                summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
+                
+                const sm = streamingResult.streamingMetrics;
+                if (sm) {
+                    if (sm.video_startup_time && sm.video_startup_time.value !== undefined) {
+                        const startupMs = sm.video_startup_time.value;
+                        summaryText += `**Video Startup Time:** ${(startupMs / 1000).toFixed(2)}s`;
+                        if (startupMs < 2000) summaryText += ` (Excellent)`;
+                        else if (startupMs < 3000) summaryText += ` (Good)`;
+                        else summaryText += ` (Needs Improvement)`;
+                        summaryText += `\n`;
+                    }
+                    
+                    if (sm.rebuffer_percentage && sm.rebuffer_percentage.value !== undefined) {
+                        const rebufferPct = sm.rebuffer_percentage.value;
+                        summaryText += `**Rebuffering Rate:** ${rebufferPct.toFixed(2)}%`;
+                        if (rebufferPct < 1) summaryText += ` (Excellent)`;
+                        else if (rebufferPct < 3) summaryText += ` (Acceptable)`;
+                        else summaryText += ` (Critical)`;
+                        summaryText += `\n`;
+                    }
+                    
+                    if (sm.rebuffer_count && sm.rebuffer_count.value !== undefined) {
+                        summaryText += `**Total Rebuffer Events:** ${sm.rebuffer_count.value}\n`;
+                    }
+                    
+                    if (sm.total_views !== undefined) {
+                        summaryText += `**Total Views:** ${sm.total_views}\n`;
+                    }
+                } else {
+                    summaryText += `No streaming metrics available for this time period.\n`;
+                }
+                
+            } else if (actualFocusArea === 'cdn') {
+                // CDN-focused report with country breakdown
+                if (!cdnResult?.success) {
+                    throw new Error('Unable to retrieve CDN and geographic data. Check Mux Data API access.');
+                }
+                
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                
+                summaryText = `## CDN & Geographic Distribution Report\n\n`;
+                summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
+                
+                const cdnData = cdnResult.cdnMetrics;
+                if (cdnData && cdnData.country && cdnData.country.length > 0) {
+                    summaryText += `**Views by Country:**\n`;
+                    const totalViews = cdnData.country.reduce((sum: number, c: any) => sum + (c.views || 0), 0);
+                    cdnData.country.slice(0, 5).forEach((country: any) => {
+                        const countryName = country.field || 'Unknown';
+                        const views = country.views || 0;
+                        const percentage = totalViews > 0 ? ((views / totalViews) * 100).toFixed(1) : '0.0';
+                        const avgStartup = country.value || 0;
+                        summaryText += `• **${countryName}:** ${views.toLocaleString()} views (${percentage}%) | Avg startup: ${(avgStartup / 1000).toFixed(2)}s\n`;
+                    });
+                    summaryText += `\n**Total:** ${totalViews.toLocaleString()} views across ${cdnData.country.length} countries\n`;
+                } else {
+                    summaryText += `No geographic data available for this time period.\n`;
+                }
+                
+                if (cdnData && cdnData.asn && cdnData.asn.length > 0) {
+                    summaryText += `\n**Top ISPs:**\n`;
+                    cdnData.asn.slice(0, 3).forEach((isp: any) => {
+                        const ispName = isp.field || 'Unknown ISP';
+                        const views = isp.views || 0;
+                        const avgStartup = isp.value || 0;
+                        summaryText += `• ${ispName}: ${views.toLocaleString()} views, ${(avgStartup / 1000).toFixed(2)}s avg startup\n`;
+                    });
+                }
+                
+            } else if (actualFocusArea === 'engagement') {
+                // Engagement-focused report
+                if (!engagementResult?.success) {
+                    throw new Error('Unable to retrieve engagement metrics. Check Mux Data API access.');
+                }
+                
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                
+                summaryText = `## Viewer Engagement Report\n\n`;
+                summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
+                
+                const em = engagementResult.engagementMetrics;
+                if (em) {
+                    if (em.total_views !== undefined) {
+                        summaryText += `**Total Views:** ${em.total_views.toLocaleString()}\n`;
+                    }
+                    
+                    if (em.unique_viewers !== undefined) {
+                        summaryText += `**Unique Viewers:** ${em.unique_viewers.toLocaleString()}\n`;
+                    }
+                    
+                    if (em.average_watch_time !== undefined) {
+                        const avgMinutes = (em.average_watch_time / 60).toFixed(1);
+                        summaryText += `**Average Watch Time:** ${avgMinutes} minutes\n`;
+                    }
+                    
+                    if (em.playback_success_rate !== undefined) {
+                        summaryText += `**Playback Success Rate:** ${em.playback_success_rate.toFixed(1)}%\n`;
+                    }
+                    
+                    if (em.completion_rate !== undefined) {
+                        summaryText += `**Completion Rate:** ${em.completion_rate.toFixed(1)}%\n`;
+                    }
+                } else {
+                    summaryText += `No engagement metrics available for this time period.\n`;
+                }
+                
+            } else if (analyticsResult?.success) {
+                const { metrics, analysis } = analyticsResult;
+                summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
+            } else {
+                throw new Error('No analytics data available to generate audio summary');
+            }
 
                         const audioSummary = await condenseForAudio(summaryText);
                         const audioBuffer = await synthesizeWithCartesiaTTS(audioSummary);
@@ -1589,38 +1761,59 @@ function buildSystemPrompt() {
         '- muxAssetsListTool: Query Mux Video assets, status, encoding progress',
         '- muxVideoViewsTool: Detailed view data from Mux Data per asset or timeframe',
         '',
-        'AUDIO SUMMARY REQUIREMENT (ONLY WHEN EXPLICITLY REQUESTED):',
+        'AUDIO SUMMARY REQUIREMENT (WHEN EXPLICITLY REQUESTED):',
         '- Audio reports take 30-60 seconds to generate (TTS + upload)',
         '- TARGET DURATION: Keep audio summaries to ~30 seconds (75-90 words)',
-        '- ONLY generate audio reports when user EXPLICITLY asks for:',
+        '- Generate audio when user asks for "audio" in their request:',
+        '  * "provide an audio summary of X"',
+        '  * "audio summary of views by country"',
         '  * "generate an audio report"',
         '  * "create an audio summary"',  
         '  * "audio report for..." ',
-        '  * "give me an audio analysis"',
-        '- For ALL other queries, use the fast category-specific tools directly:',
+        '  * "give me an audio analysis of X"',
+        '  * ANY request that includes the word "audio"',
+        '- For queries WITHOUT "audio", use fast category-specific tools:',
         '  * muxStreamingPerformanceTool for streaming metrics',
-        '  * muxCDNMetricsTool for CDN/delivery metrics',
+        '  * muxCDNMetricsTool for CDN/delivery metrics (includes country breakdown)',
         '  * muxEngagementMetricsTool for user engagement',
         '  * muxErrorsTool for error analysis',
         '  * muxAnalyticsTool for general analytics',
-        '- Respond IMMEDIATELY with text data - do NOT generate audio unless explicitly requested',
-        '- When generating audio (explicit request only) - CRITICAL TWO-PHASE APPROACH:',
+        '  * muxVideoViewsTool for detailed view data',
+        '- Respond IMMEDIATELY with text data - THEN generate audio if requested',
+        '- When generating audio (when "audio" mentioned) - CRITICAL TWO-PHASE APPROACH:',
         '  * PHASE 1 - Stream Text Summary FIRST (immediate, <5 seconds):',
-        '    1. Call the appropriate analytics tools (muxAnalyticsTool, muxErrorsTool, etc.)',
-        '    2. Generate a concise text summary from the data (keep brief for audio)',
-        '    3. IMMEDIATELY stream this text summary to the user',
-        '    4. Format it clearly with natural conversational language - NO numbered lists',
-        '    5. Tell user "Audio version generating..." at the end',
+        '    1. Call the appropriate analytics tools based on query:',
+        '       - "views by country" or "geographic" → use muxCDNMetricsTool',
+        '       - "streaming performance" or "startup time" → use muxStreamingPerformanceTool',
+        '       - "errors" or "playback failures" → use muxErrorsTool',
+        '       - "engagement" or "watch time" → use muxEngagementMetricsTool',
+        '       - "general analytics" → use muxAnalyticsTool',
+        '    2. Generate COMPACT text summary from the tool data',
+        '    3. Stream the summary immediately in CLEAN, COMPACT format (see TEXT FORMATTING RULES)',
+        '    4. End with: "\\n\\n🎤 **Generating audio version...** (30-60s)"',
+        '',
         '  * PHASE 2 - Generate Audio (background, 30-60 seconds):',
         '    1. AFTER streaming the text, call ttsAnalyticsReportTool with:',
-        '       - Same timeframe as the text summary',
-        '       - Appropriate focusArea (general/errors/both)',
-        '    2. The tool will internally regenerate the summary and convert to audio',
+        '       - Same timeframe as the text summary (CRITICAL: must match Phase 1)',
+        '       - Appropriate focusArea matching the query category:',
+        '         * focusArea=\'cdn\' for views by country / geographic queries',
+        '         * focusArea=\'streaming\' for performance / startup time queries',
+        '         * focusArea=\'engagement\' for watch time / viewer queries',
+        '         * focusArea=\'errors\' for error analysis queries',
+        '         * focusArea=\'both\' for comprehensive reports',
+        '         * focusArea=\'general\' as fallback',
+        '    2. The ttsAnalyticsReportTool will:',
+        '       - Fetch the SAME analytics data with SAME timeframe',
+        '       - Generate a full summary text for that specific category',
+        '       - Use condenseForAudio to create a 75-90 word audio script',
+        '       - Convert to natural speech with Cartesia TTS',
+        '       - Upload to Mux and return player URL',
         '    3. When tool completes, display the audio URL',
-        '  * This approach ensures users can READ the report immediately while audio generates',
-        '  * The text summary and audio content will be nearly identical',
-        '  * Users get instant value (text) while waiting for audio',
-        '  * Keep audio summaries concise - aim for 30 seconds maximum duration',
+        '  * CRITICAL: focusArea MUST match the query category for data alignment',
+        '  * Audio is automatically condensed to 75-90 words (30 seconds)',
+        '  * The condenseForAudio function focuses on top 3-4 key points only',
+        '  * Audio is SHORTER than the text display but covers same key insights',
+        '  * Users get instant text (<5s) + condensed audio for listening (30-60s)',
         '',
         'AUDIO URL DISPLAY RULES (CRITICAL):',
         '- After PHASE 2 completes, display the audio URL prominently',
@@ -1638,52 +1831,73 @@ function buildSystemPrompt() {
         '- Examples of FAKE asset IDs (NEVER use): "error-report-2025-10-10", "analytics-report", "audio-123"',
         '- If assetId is undefined or missing from tool response, say "Asset ID not yet available" - do NOT make one up',
         '',
-        'TEXT FORMATTING RULES (CRITICAL - NATURAL & READABLE FORMAT):',
-        '- Use DOUBLE line breaks (\\n\\n) between sections for clear separation',
-        '- Use single line breaks (\\n) within lists and related items',
-        '- Use **bold** sparingly - only for key terms and metrics',
-        '- Write in natural, conversational sentences rather than bullet fragments',
-        '- Format dates naturally: "October thirteenth twenty twenty-five" not "2025-10-13"',
-        '- Format IDs clearly: "Asset I D" not "asset-id" or "asset_id"',
-        '- NO NUMBERED LISTS: Use natural language like "The highest count", "The most common", "Top performer"',
-        '- Instead of "1. Error A, 2. Error B" write "The most common error was Error A, followed by Error B"',
-        '- Example natural format:',
-        '  "## Performance Overview\\n\\nVideo startup time is 6 milliseconds with rebuffering at 0.09 percent across 5 views.\\n\\nStatus: All metrics are healthy and performing optimally."',
-        '- Use clear, complete sentences instead of abbreviations',
-        '- Group related metrics in paragraphs, not fragmented bullet points',
-        '- BAD: "VST: 6ms | Rebuf: 0.09% | Views: 5 ✅"',
-        '- GOOD: "Video startup time is 6 milliseconds with 0.09 percent rebuffering across 5 views. Performance is excellent."',
-        '- Avoid excessive symbols (|, •, →) - use natural language flow',
-        '- Write as if explaining to a colleague, not filling out a form',
+        'TEXT FORMATTING RULES (CRITICAL - CLEAN & COMPACT FORMAT):',
+        '- Keep responses CONCISE and DATA-DENSE - every line should add value',
+        '- Use clean spacing: double line breaks (\\n\\n) ONLY between major sections',
+        '- Use single line breaks (\\n) within lists for tight, scannable format',
+        '- Use **bold** for key metrics and important values',
+        '- Format metrics compactly: "VST: 6ms | Rebuffer: 0.09% | Views: 5"',
+        '- Use bullet points for lists of items (with proper spacing)',
+        '- Use numbered lists for sequential steps or rankings',
+        '- Example compact format:',
+        '  "## Performance Overview\\n\\n**Metrics**: VST 6ms | Rebuffer 0.09% | 5 views\\n**Status**: All healthy\\n\\n**Top Issues**:\\n• Error A: 45%\\n• Error B: 32%\\n• Error C: 23%"',
+        '- NO excessive prose or conversational filler',
+        '- NO redundant phrases like "Let me analyze", "Here\'s what I found"',
+        '- Start with data immediately after headers',
+        '- Use technical abbreviations: VST, CDN, ISP, QoE, etc.',
+        '- Keep sentences short and direct',
+        '- Group related metrics with | separators for compactness',
+        '- BAD: "Video startup time is 6 milliseconds with rebuffering at 0.09 percent across 5 views. Performance is excellent."',
+        '- GOOD: "VST: 6ms | Rebuffer: 0.09% | Views: 5 | Status: Excellent"',
         '',
         'AUDIO REPORT RESPONSE FORMAT (CRITICAL - FOLLOW EXACTLY WITH TWO-PHASE APPROACH):',
         '',
         '** PHASE 1 - IMMEDIATE TEXT RESPONSE (stream this first): **',
         '1. Call analytics tools (muxAnalyticsTool, muxErrorsTool, etc.) to get data',
-        '2. Generate comprehensive text summary from the data',
-        '3. Stream the summary immediately in natural, readable format',
-        '4. End with: "\\n\\n🎤 Generating audio version... (30-60 seconds)"',
+        '2. Generate COMPACT text summary from the data',
+        '3. Stream the summary immediately in CLEAN, COMPACT format (see TEXT FORMATTING RULES)',
+        '4. End with: "\\n\\n🎤 **Generating audio version...** (30-60s)"',
         '',
         '** PHASE 2 - AUDIO GENERATION (after text is streamed): **',
         '1. Call ttsAnalyticsReportTool with same parameters',
         '2. Wait for tool to complete (this takes 30-60 seconds)',
         '3. Display the audio URL from tool response',
-        '4. Format: "\\n\\n🎧 **Audio Report Ready**\\n▶️ Listen: [URL from tool]"',
+        '4. Format: "\\n\\n🎧 **Audio Ready**\\n[URL from tool]"',
         '',
         '** EXAMPLE FLOW: **',
         'User asks: "Generate an audio report for the last 7 days"',
         '',
-        'Your response (PHASE 1 - immediate):',
-        '"## Mux Analytics Report\\n\\nAnalyzing data from October 6 2025 to October 13 2025...\\n\\n[Full text summary here with metrics, analysis, recommendations]\\n\\n🎤 Generating audio version... (30-60 seconds)"',
+        'Your response (PHASE 1 - immediate, COMPACT format):',
+        '"## Analytics Report\\n\\n**Timeframe**: Oct 6-13 2025\\n\\n**Metrics**:\\nVST: 6ms | Rebuffer: 0.09% | Views: 5\\nError Rate: 0% | VES: 98/100\\n\\n**Status**: All systems healthy\\n\\n🎤 **Generating audio version...** (30-60s)"',
         '',
         'Then (PHASE 2 - after TTS completes):',
-        '"\\n\\n🎧 **Audio Report Ready**\\nListen: https://www.streamingportfolio.com/player?assetId=abc123"',
+        '"\\n\\n🎧 **Audio Ready**\\nhttps://www.streamingportfolio.com/player?assetId=abc123"',
         '',
-        '** WHY THIS APPROACH: **',
-        '- Users get immediate value (text report in <5 seconds)',
-        '- Users can read while audio is being generated',
-        '- Audio provides convenience for listening later',
-        '- Much better UX than waiting 60 seconds for any output',
+        '** KEY POINTS: **',
+        '- Text display: COMPACT, scannable, data-dense (for reading)',
+        '- Audio version: CONDENSED to 75-90 words, natural speech (TTS handles conversion)',
+        '- Audio focuses on TOP 3-4 KEY POINTS only, not all details from text',
+        '- Users get instant text (<5s) while audio generates in background',
+        '',
+        '** EXAMPLE FOR CATEGORY-SPECIFIC AUDIO REQUEST: **',
+        'User asks: "provide an audio summary of total views by country"',
+        '',
+        'Your response (PHASE 1 - immediate):',
+        '1. Call muxCDNMetricsTool with timeframe (e.g., last 7 days)',
+        '2. Display compact text:',
+        '"## Views by Country\\n\\n**Top Countries**:\\n• United States: 1,234 views (45%)\\n• Canada: 678 views (25%)\\n• United Kingdom: 432 views (16%)\\n\\n**Total**: 2,756 views across 5 countries\\n\\n🎤 **Generating audio version...** (30-60s)"',
+        '',
+        'Then (PHASE 2 - call ttsAnalyticsReportTool):',
+        '- timeframe: "last 7 days" (MUST MATCH Phase 1)',
+        '- focusArea: "cdn" (MUST be \'cdn\' for country data)',
+        '',
+        'When tool completes, display:',
+        '"\\n\\n🎧 **Audio Ready**\\nhttps://www.streamingportfolio.com/player?assetId=abc123"',
+        '',
+        'The audio will be condensed to ~80 words covering same countries:',
+        '"Your platform had 2,756 total views across 5 countries. The United States led with 1,234 views at 45 percent. Canada followed with 678 views. The United Kingdom, Germany, and France rounded out the top five. US and Canada together account for 70 percent of all views."',
+        '',
+        '** KEY POINT: focusArea=\'cdn\' ensures audio includes country breakdown **',
         '',
         'ANALYSIS APPROACH (MUX PLATFORM FOCUSED):',
         '- ALL data comes from Mux Data API - real production analytics from stream.mux.com',
@@ -1706,12 +1920,12 @@ function buildSystemPrompt() {
         '- REPRODUCIBLE: Give exact steps using Mux APIs, tools, and Data breakdowns',
         '- PRODUCTION-AWARE: Consider blast radius, monitoring via Mux Data, SRE practices',
         '- SPEC REFERENCES: Cite RFC 8216 (HLS), Mux API docs, Mux Data metric definitions',
-        '- NO FLUFF: Cut all "customer service" language - this is peer engineer communication',
+        '- NO FLUFF: Cut all "customer service" language and filler phrases',
         '- PLATFORM AWARENESS: Remember you are working with Mux Video + Mux Data ecosystem',
-        '- NATURAL LANGUAGE: Write in complete, natural sentences - not fragmented bullet points',
-        '- DATE FORMAT: Always write dates as "October 13 2025" not "2025-10-13" or "10/13/2025"',
-        '- ID FORMAT: Always write IDs as "Asset I D" not "asset-id", "Playback I D" not "playback-id"',
-        '- READABLE FLOW: Group related information in paragraphs, avoid excessive symbols (|, •, →)',
+        '- COMPACT FORMAT: Use technical abbreviations, | separators, bullet points for scanning',
+        '- DATE FORMAT: Use "Oct 13 2025" or "2025-10-13" (compact, not spelled out)',
+        '- ID FORMAT: Use "asset-id" or "playback-id" (technical format, not spelled out)',
+        '- SCANNABLE: Format for quick reading with clear visual hierarchy',
     ].join('\n');
 }
 

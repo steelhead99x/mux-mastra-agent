@@ -645,30 +645,55 @@ export default function MuxAnalyticsChat() {
             )}
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+          <>
+            {messages.map((message) => (
               <div
-                className={`max-w-[80%] p-3 rounded-lg group message-bubble ${
-                  message.role === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-white border'
-                }`}
-                style={{
-                  backgroundColor: message.role === 'user' ? 'var(--accent)' : 'var(--bg)',
-                  borderColor: message.role === 'assistant' ? 'var(--border)' : 'transparent',
-                  color: message.role === 'user' ? 'var(--accent-contrast)' : 'var(--fg)'
-                }}
+                key={message.id}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <MessageComponent 
-                  message={message} 
-                  isStreaming={isStreaming && message.role === 'assistant' && message === messages[messages.length - 1]}
-                />
+                <div
+                  className={`max-w-[80%] p-3 rounded-lg group message-bubble ${
+                    message.role === 'user'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-white border'
+                  }`}
+                  style={{
+                    backgroundColor: message.role === 'user' ? 'var(--accent)' : 'var(--bg)',
+                    borderColor: message.role === 'assistant' ? 'var(--border)' : 'transparent',
+                    color: message.role === 'user' ? 'var(--accent-contrast)' : 'var(--fg)'
+                  }}
+                >
+                  <MessageComponent 
+                    message={message} 
+                    isStreaming={isStreaming && message.role === 'assistant' && message === messages[messages.length - 1]}
+                  />
+                </div>
               </div>
-            </div>
-          ))
+            ))}
+            
+            {/* Thinking Indicator */}
+            {isLoading && !isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+              <div className="flex justify-start">
+                <div
+                  className="max-w-[80%] p-3 rounded-lg border"
+                  style={{
+                    backgroundColor: 'var(--bg)',
+                    borderColor: 'var(--border)',
+                    color: 'var(--fg-muted)'
+                  }}
+                >
+                  <div className="flex items-center gap-2 text-sm">
+                    <div className="flex gap-1">
+                      <span className="animate-bounce" style={{ animationDelay: '0ms' }}>●</span>
+                      <span className="animate-bounce" style={{ animationDelay: '150ms' }}>●</span>
+                      <span className="animate-bounce" style={{ animationDelay: '300ms' }}>●</span>
+                    </div>
+                    <span>Thinking...</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

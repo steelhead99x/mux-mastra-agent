@@ -114,7 +114,7 @@ body {
 
 /* Enhanced chat message formatting - optimized */
 .chat-message {
-  line-height: 1.6;
+  line-height: 1.5; /* Tighter line height for compact format */
   word-wrap: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
@@ -131,10 +131,12 @@ body {
 
 .prose p {
   color: var(--fg) !important;
+  margin: 0.4em 0; /* Tighter paragraph spacing */
 }
 
 .prose strong {
   color: var(--fg) !important;
+  font-weight: 600;
 }
 
 .prose code {
@@ -142,8 +144,31 @@ body {
   background-color: var(--bg-elev);
 }
 
-.chat-message p {
+.prose ul, .prose ol {
   margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.prose li {
+  margin: 0.2em 0; /* Tight list item spacing */
+}
+
+.prose h2 {
+  margin-top: 0.8em;
+  margin-bottom: 0.4em;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.prose h3 {
+  margin-top: 0.6em;
+  margin-bottom: 0.3em;
+  font-size: 1em;
+  font-weight: 600;
+}
+
+.chat-message p {
+  margin: 0.4em 0; /* Consistent paragraph spacing */
 }
 
 .chat-message p:first-child {
