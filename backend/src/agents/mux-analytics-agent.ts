@@ -94,6 +94,27 @@ function formatDateForSpeech(date: Date): string {
     return `${month} ${day} ${year}`;  // e.g., "October thirteenth twenty twenty-five"
 }
 
+// Helper function to format time range for display
+function formatTimeRange(timeRange: { start: string; end: string }): string {
+    const startDate = new Date(timeRange.start);
+    const endDate = new Date(timeRange.end);
+    const startStr = startDate.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+    const endStr = endDate.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+    return `${startStr} - ${endStr}`;
+}
+
 // Generate TTS with Cartesia - Enhanced for clarity and natural pacing
 // OPTIMIZED: Fast, efficient text preprocessing with comprehensive special character removal
 async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
@@ -908,10 +929,6 @@ const ttsAnalyticsReportTool = createTool({
                             }
             } else if (actualFocusArea === 'streaming') {
                 // Streaming-focused report
-                if (!streamingResult?.success) {
-                    throw new Error('Unable to retrieve streaming performance data. Check Mux Data API access.');
-                }
-                
                 const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
                     month: 'long', day: 'numeric', year: 'numeric' 
                 });
@@ -922,8 +939,8 @@ const ttsAnalyticsReportTool = createTool({
                 summaryText = `## Streaming Performance Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
                 
-                const sm = streamingResult.streamingMetrics;
-                if (sm) {
+                if (streamingResult?.success && streamingResult.streamingMetrics) {
+                    const sm = streamingResult.streamingMetrics;
                     if (sm.video_startup_time && sm.video_startup_time.value !== undefined) {
                         const startupMs = sm.video_startup_time.value;
                         summaryText += `**Video Startup Time:** ${(startupMs / 1000).toFixed(2)}s`;
@@ -950,15 +967,12 @@ const ttsAnalyticsReportTool = createTool({
                         summaryText += `**Total Views:** ${sm.total_views}\n`;
                     }
                 } else {
-                    summaryText += `No streaming metrics available for this time period.\n`;
+                    summaryText += `Streaming performance data is currently unavailable for this time period.\n`;
+                    console.warn('[ttsAnalyticsReportTool] Streaming data unavailable, generating audio with fallback message');
                 }
                 
             } else if (actualFocusArea === 'cdn') {
                 // CDN-focused report with country breakdown
-                if (!cdnResult?.success) {
-                    throw new Error('Unable to retrieve CDN and geographic data. Check Mux Data API access.');
-                }
-                
                 const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
                     month: 'long', day: 'numeric', year: 'numeric' 
                 });
@@ -969,38 +983,39 @@ const ttsAnalyticsReportTool = createTool({
                 summaryText = `## CDN & Geographic Distribution Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
                 
-                const cdnData = cdnResult.cdnMetrics;
-                if (cdnData && cdnData.country && cdnData.country.length > 0) {
-                    summaryText += `**Views by Country:**\n`;
-                    const totalViews = cdnData.country.reduce((sum: number, c: any) => sum + (c.views || 0), 0);
-                    cdnData.country.slice(0, 5).forEach((country: any) => {
-                        const countryName = country.field || 'Unknown';
-                        const views = country.views || 0;
-                        const percentage = totalViews > 0 ? ((views / totalViews) * 100).toFixed(1) : '0.0';
-                        const avgStartup = country.value || 0;
-                        summaryText += `• **${countryName}:** ${views.toLocaleString()} views (${percentage}%) | Avg startup: ${(avgStartup / 1000).toFixed(2)}s\n`;
-                    });
-                    summaryText += `\n**Total:** ${totalViews.toLocaleString()} views across ${cdnData.country.length} countries\n`;
+                if (cdnResult?.success && cdnResult.cdnMetrics) {
+                    const cdnData = cdnResult.cdnMetrics;
+                    if (cdnData.country && cdnData.country.length > 0) {
+                        summaryText += `**Views by Country:**\n`;
+                        const totalViews = cdnData.country.reduce((sum: number, c: any) => sum + (c.views || 0), 0);
+                        cdnData.country.slice(0, 5).forEach((country: any) => {
+                            const countryName = country.field || 'Unknown';
+                            const views = country.views || 0;
+                            const percentage = totalViews > 0 ? ((views / totalViews) * 100).toFixed(1) : '0.0';
+                            const avgStartup = country.value || 0;
+                            summaryText += `• **${countryName}:** ${views.toLocaleString()} views (${percentage}%) | Avg startup: ${(avgStartup / 1000).toFixed(2)}s\n`;
+                        });
+                        summaryText += `\n**Total:** ${totalViews.toLocaleString()} views across ${cdnData.country.length} countries\n`;
+                    } else {
+                        summaryText += `Geographic view distribution data is not available for this time period.\n`;
+                    }
+                    
+                    if (cdnData.asn && cdnData.asn.length > 0) {
+                        summaryText += `\n**Top ISPs:**\n`;
+                        cdnData.asn.slice(0, 3).forEach((isp: any) => {
+                            const ispName = isp.field || 'Unknown ISP';
+                            const views = isp.views || 0;
+                            const avgStartup = isp.value || 0;
+                            summaryText += `• ${ispName}: ${views.toLocaleString()} views, ${(avgStartup / 1000).toFixed(2)}s avg startup\n`;
+                        });
+                    }
                 } else {
-                    summaryText += `No geographic data available for this time period.\n`;
-                }
-                
-                if (cdnData && cdnData.asn && cdnData.asn.length > 0) {
-                    summaryText += `\n**Top ISPs:**\n`;
-                    cdnData.asn.slice(0, 3).forEach((isp: any) => {
-                        const ispName = isp.field || 'Unknown ISP';
-                        const views = isp.views || 0;
-                        const avgStartup = isp.value || 0;
-                        summaryText += `• ${ispName}: ${views.toLocaleString()} views, ${(avgStartup / 1000).toFixed(2)}s avg startup\n`;
-                    });
+                    summaryText += `CDN and geographic distribution data is currently unavailable for this time period.\n`;
+                    console.warn('[ttsAnalyticsReportTool] CDN data unavailable, generating audio with fallback message');
                 }
                 
             } else if (actualFocusArea === 'engagement') {
                 // Engagement-focused report
-                if (!engagementResult?.success) {
-                    throw new Error('Unable to retrieve engagement metrics. Check Mux Data API access.');
-                }
-                
                 const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
                     month: 'long', day: 'numeric', year: 'numeric' 
                 });
@@ -1011,8 +1026,8 @@ const ttsAnalyticsReportTool = createTool({
                 summaryText = `## Viewer Engagement Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
                 
-                const em = engagementResult.engagementMetrics;
-                if (em) {
+                if (engagementResult?.success && engagementResult.engagementMetrics) {
+                    const em = engagementResult.engagementMetrics;
                     if (em.total_views !== undefined) {
                         summaryText += `**Total Views:** ${em.total_views.toLocaleString()}\n`;
                     }
@@ -1034,14 +1049,23 @@ const ttsAnalyticsReportTool = createTool({
                         summaryText += `**Completion Rate:** ${em.completion_rate.toFixed(1)}%\n`;
                     }
                 } else {
-                    summaryText += `No engagement metrics available for this time period.\n`;
+                    summaryText += `Engagement metrics are currently unavailable for this time period.\n`;
+                    console.warn('[ttsAnalyticsReportTool] Engagement data unavailable, generating audio with fallback message');
                 }
                 
             } else if (analyticsResult?.success) {
                 const { metrics, analysis } = analyticsResult;
                 summaryText = formatAnalyticsSummary(metrics, analysis, timeRange);
             } else {
-                throw new Error('No analytics data available to generate audio summary');
+                // Fallback: generate a generic message
+                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
+                    month: 'long', day: 'numeric', year: 'numeric' 
+                });
+                summaryText = `## Analytics Report\n\n**Time Period:** ${startDate} to ${endDate}\n\nAnalytics data is currently being processed. Please try again in a few moments.`;
+                console.warn('[ttsAnalyticsReportTool] No analytics data available, using fallback message');
             }
 
                         const audioSummary = await condenseForAudio(summaryText);
@@ -1329,6 +1353,51 @@ const ttsAnalyticsReportTool = createTool({
                 
                 summaryText += `\n---\n*End of streaming analytics report*`;
                 
+            } else if (actualFocusArea === 'streaming' && streamingResult?.success) {
+                // Streaming-only report
+                summaryText = `## Streaming Performance Metrics\n\n`;
+                summaryText += `**Timeframe:** ${formatTimeRange(timeRange)}\n\n`;
+                const sm = streamingResult.streamingMetrics;
+                if (sm.video_startup_time && sm.video_startup_time.value !== undefined) {
+                    summaryText += `• **Video Startup Time:** ${(sm.video_startup_time.value / 1000).toFixed(2)}s\n`;
+                }
+                if (sm.rebuffer_percentage && sm.rebuffer_percentage.value !== undefined) {
+                    summaryText += `• **Rebuffer Percentage:** ${(sm.rebuffer_percentage.value * 100).toFixed(2)}%\n`;
+                }
+                if (sm.views && sm.views.value !== undefined) {
+                    summaryText += `• **Total Views:** ${sm.views.value}\n`;
+                }
+                if (sm.view_watch_time && sm.view_watch_time.value !== undefined) {
+                    summaryText += `• **Watch Time:** ${(sm.view_watch_time.value / 3600).toFixed(1)}h\n`;
+                }
+                
+            } else if (actualFocusArea === 'cdn' && cdnResult?.success) {
+                // CDN-only report
+                summaryText = `## CDN and Delivery Metrics\n\n`;
+                summaryText += `**Timeframe:** ${formatTimeRange(timeRange)}\n\n`;
+                const cdnData = cdnResult.cdnMetrics;
+                if (cdnData.country && cdnData.country.length > 0) {
+                    summaryText += `**Top Geographic Regions:**\n`;
+                    cdnData.country.slice(0, 5).forEach((country: any) => {
+                        const countryName = country.field || 'Unknown';
+                        const views = country.views || 0;
+                        summaryText += `  • ${countryName}: ${views} views\n`;
+                    });
+                }
+                
+            } else if (actualFocusArea === 'engagement' && engagementResult?.success) {
+                // Engagement-only report
+                summaryText = `## User Engagement Metrics\n\n`;
+                summaryText += `**Timeframe:** ${formatTimeRange(timeRange)}\n\n`;
+                const em = engagementResult.engagementMetrics;
+                if (em.viewer_experience_score && em.viewer_experience_score.value !== undefined) {
+                    const vesScore = em.viewer_experience_score.value;
+                    summaryText += `• **Viewer Experience Score:** ${(vesScore * 100).toFixed(1)}/100\n`;
+                }
+                if (em.playback_failure_score && em.playback_failure_score.value !== undefined) {
+                    summaryText += `• **Playback Failure Score:** ${em.playback_failure_score.value.toFixed(1)}\n`;
+                }
+                
             } else if (analyticsResult?.success) {
                 // General analytics report
                 const { metrics, analysis } = analyticsResult;
@@ -1370,9 +1439,16 @@ const ttsAnalyticsReportTool = createTool({
             
             // Generate TTS audio from condensed summary
             console.log('[TOOL-TTS] 🎤 Generating audio with Cartesia TTS...');
+            console.log(`[TOOL-TTS] Audio summary length: ${audioSummary.length} chars, ~${audioSummary.split(/\s+/).length} words`);
             const ttsGenerationStart = Date.now();
-            const audioBuffer = await synthesizeWithCartesiaTTS(audioSummary);
-            console.log(`[TOOL-TTS] ✓ TTS generation completed in ${Date.now() - ttsGenerationStart}ms (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+            let audioBuffer: Buffer;
+            try {
+                audioBuffer = await synthesizeWithCartesiaTTS(audioSummary);
+                console.log(`[TOOL-TTS] ✓ TTS generation completed in ${Date.now() - ttsGenerationStart}ms (${(audioBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+            } catch (ttsError) {
+                console.error('[TOOL-TTS] ✗ Cartesia TTS failed:', ttsError);
+                throw new Error(`TTS generation failed: ${ttsError instanceof Error ? ttsError.message : String(ttsError)}`);
+            }
             
             // Save audio file
             console.log('[TOOL-FileWrite] Writing audio file to disk...');
@@ -1545,12 +1621,22 @@ const ttsAnalyticsReportTool = createTool({
             
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
+            const errorStack = error instanceof Error ? (error.stack || '') : '';
             const sanitizedError = sanitizeApiKey(errorMessage);
-            console.error('[tts-analytics-report] Error:', sanitizedError);
+            const sanitizedStack = sanitizeApiKey(errorStack);
+            console.error('[tts-analytics-report] ✗ ERROR:', sanitizedError);
+            if (sanitizedStack) {
+                console.error('[tts-analytics-report] ✗ STACK:', sanitizedStack);
+            }
+            console.error('[tts-analytics-report] ✗ Full error object:', JSON.stringify(error, null, 2));
             return {
                 success: false,
                 error: sanitizedError,
-                message: 'Failed to generate analytics report'
+                message: `Failed to generate analytics report: ${sanitizedError}`,
+                _debug: {
+                    errorType: error instanceof Error ? error.constructor.name : typeof error,
+                    stack: sanitizedStack || 'No stack trace available'
+                }
             };
         }
     },
@@ -1779,41 +1865,35 @@ function buildSystemPrompt() {
         '  * muxErrorsTool for error analysis',
         '  * muxAnalyticsTool for general analytics',
         '  * muxVideoViewsTool for detailed view data',
-        '- Respond IMMEDIATELY with text data - THEN generate audio if requested',
-        '- When generating audio (when "audio" mentioned) - CRITICAL TWO-PHASE APPROACH:',
-        '  * PHASE 1 - Stream Text Summary FIRST (immediate, <5 seconds):',
-        '    1. Call the appropriate analytics tools based on query:',
-        '       - "views by country" or "geographic" → use muxCDNMetricsTool',
-        '       - "streaming performance" or "startup time" → use muxStreamingPerformanceTool',
-        '       - "errors" or "playback failures" → use muxErrorsTool',
-        '       - "engagement" or "watch time" → use muxEngagementMetricsTool',
-        '       - "general analytics" → use muxAnalyticsTool',
-        '    2. Generate COMPACT text summary from the tool data',
-        '    3. Stream the summary immediately in CLEAN, COMPACT format (see TEXT FORMATTING RULES)',
-        '    4. End with: "\\n\\n🎤 **Generating audio version...** (30-60s)"',
         '',
-        '  * PHASE 2 - Generate Audio (background, 30-60 seconds):',
-        '    1. AFTER streaming the text, call ttsAnalyticsReportTool with:',
-        '       - Same timeframe as the text summary (CRITICAL: must match Phase 1)',
-        '       - Appropriate focusArea matching the query category:',
-        '         * focusArea=\'cdn\' for views by country / geographic queries',
-        '         * focusArea=\'streaming\' for performance / startup time queries',
-        '         * focusArea=\'engagement\' for watch time / viewer queries',
-        '         * focusArea=\'errors\' for error analysis queries',
-        '         * focusArea=\'both\' for comprehensive reports',
-        '         * focusArea=\'general\' as fallback',
-        '    2. The ttsAnalyticsReportTool will:',
-        '       - Fetch the SAME analytics data with SAME timeframe',
-        '       - Generate a full summary text for that specific category',
-        '       - Use condenseForAudio to create a 75-90 word audio script',
-        '       - Convert to natural speech with Cartesia TTS',
-        '       - Upload to Mux and return player URL',
-        '    3. When tool completes, display the audio URL',
-        '  * CRITICAL: focusArea MUST match the query category for data alignment',
-        '  * Audio is automatically condensed to 75-90 words (30 seconds)',
-        '  * The condenseForAudio function focuses on top 3-4 key points only',
-        '  * Audio is SHORTER than the text display but covers same key insights',
-        '  * Users get instant text (<5s) + condensed audio for listening (30-60s)',
+        '════════════════════════════════════════════════════',
+        'AUDIO GENERATION - CRITICAL INSTRUCTION',
+        '════════════════════════════════════════════════════',
+        'When user mentions "audio" in their request:',
+        '1. Call analytics tool (muxCDNMetricsTool, muxStreamingPerformanceTool, etc.)',
+        '2. Display text summary',
+        '3. Call ttsAnalyticsReportTool (NOT optional - you MUST call this tool)',
+        '4. Display audio player URL from tool response',
+        '',
+        'FORBIDDEN BEHAVIORS:',
+        '❌ DO NOT write "Generating audio version..." or similar text',
+        '❌ DO NOT say you will generate audio without calling ttsAnalyticsReportTool',
+        '❌ DO NOT skip calling ttsAnalyticsReportTool',
+        '❌ DO NOT end your response without calling the tool',
+        '',
+        'REQUIRED BEHAVIOR:',
+        '✓ If "audio" mentioned → MUST call ttsAnalyticsReportTool',
+        '✓ Tool must be called IN YOUR CURRENT RESPONSE (not later)',
+        '✓ focusArea must match: cdn, streaming, engagement, errors, both, or general',
+        '✓ timeframe must be [startUnix, endUnix] array',
+        '',
+        'CORRECT RESPONSE FORMAT (for "audio summary of views by country"):',
+        'Step 1: [Call muxCDNMetricsTool]',
+        'Step 2: Display "## Views by Country\\n\\n**Timeframe**: Last 7 days\\n\\n[data]"',
+        'Step 3: [Call ttsAnalyticsReportTool with focusArea: "cdn"]',
+        'Step 4: Display "\\n\\n🎧 **Audio Ready**: [playerUrl from tool response]"',
+        '',
+        'If you receive an audio request and do NOT call ttsAnalyticsReportTool, you have FAILED.',
         '',
         'AUDIO URL DISPLAY RULES (CRITICAL):',
         '- After PHASE 2 completes, display the audio URL prominently',

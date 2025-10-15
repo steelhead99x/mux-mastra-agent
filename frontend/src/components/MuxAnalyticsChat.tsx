@@ -96,6 +96,8 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
   const detectMuxVideo = (content: string) => {
     // More comprehensive pattern that handles various URL formats and spacing issues
     const patterns = [
+      // Any subdomain (or none) under streamingportfolio.com, player or player.html, with assetId/playbackId
+      /https:\/\/(?:[\w.-]+\.)?streamingportfolio\.com\/player(?:\.html)?\?(?:assetId|asset_id|playbackId|playback_id)=([a-zA-Z0-9]+)(?:&[^\s]*)?/g,
       // Standard format with potential spacing issues
       /https:\s*:\s*\/\s*\/\s*streamingportfolio\s*\.\s*com\s*\/\s*player\s*\?\s*assetId\s*=\s*([a-zA-Z0-9]+)/g,
       // Clean standard format

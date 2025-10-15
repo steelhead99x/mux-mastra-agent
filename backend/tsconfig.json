@@ -24,7 +24,6 @@
     "tsBuildInfoFile": "./.tsbuildcache/tsconfig.tsbuildinfo",
     "outDir": "./dist",
     "baseUrl": ".",
-    "typeRoots": ["./node_modules/@types"],
     "paths": {
       "@/*": ["./src/*"],
       "@/shared/*": ["../shared/src/*"]
@@ -36,8 +35,6 @@
   "exclude": [
     "node_modules",
     "dist",
-    ".mastra",
-    "src/**/*.test.ts",
-    "src/test/**/*"
+    ".mastra"
   ]
 }
