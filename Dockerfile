@@ -1,20 +1,15 @@
-# Multi-stage build for production
-FROM node:24-slim AS base
+## Single Alpine-based multi-stage build (frontend + backend)
+FROM node:24-alpine AS base
 
-# Install system dependencies needed for native modules (canvas, etc.)
-RUN apt-get update && apt-get install -y \
+# Install minimal base tools used across stages
+RUN apk add --no-cache \
     python3 \
     make \
     g++ \
-    libcairo2-dev \
-    libjpeg-dev \
-    libpango1.0-dev \
-    libgif-dev \
-    build-essential \
-    libfreetype6-dev \
-    && rm -rf /var/lib/apt/lists/*
+    pkgconfig \
+    libc6-compat
 
-# Install dependencies only when needed
+# Install production dependencies only (workspaces)
 FROM base AS deps
 WORKDIR /app
 
@@ -26,18 +21,31 @@ COPY shared/package*.json ./shared/
 COPY scripts/ ./scripts/
 COPY .npmrc ./
 
-# Install production dependencies for all workspaces using a single lockfile
-# Force update MCP SDK to prevent version conflicts
-# Skip optional dependencies that might cause issues
+# Install production deps for all workspaces, skip optional/native builds
 RUN npm ci --workspaces --omit=dev --no-optional --ignore-scripts && \
     npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts && \
     ./scripts/cleanup-native-modules.sh
 
-# Build the application
-FROM base AS builder-deps
+# Builder deps with native build toolchain for canvas/chart rendering
+FROM node:24-alpine AS builder-deps
 WORKDIR /app
 
-# Ensure Python is available for node-gyp
+# Native build deps for canvas and friends
+RUN apk add --no-cache \
+    bash \
+    python3 \
+    make \
+    g++ \
+    pkgconfig \
+    build-base \
+    cairo-dev \
+    pango-dev \
+    jpeg-dev \
+    giflib-dev \
+    pixman-dev \
+    freetype-dev
+
+# Ensure python binary for node-gyp
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Copy package files
@@ -48,8 +56,10 @@ COPY shared/package*.json ./shared/
 COPY scripts/ ./scripts/
 COPY .npmrc ./
 
-# Install all dependencies for all workspaces (including dev)
-# Force update MCP SDK to prevent version conflicts during build
+# Skip dev env post-build hooks by forcing production during build
+ENV NODE_ENV=production
+
+# Install all deps (incl dev) without running install scripts
 RUN npm ci --workspaces --include=dev --ignore-scripts && \
     npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts
 
@@ -73,92 +83,78 @@ COPY frontend ./frontend
 COPY shared ./shared
 RUN npm --workspace frontend run build
 
-# (Optional) Mastra CLI build is skipped in CI to avoid failures; runtime can use dist
-
-# Production image
-FROM base AS runner
+# Final runtime image
+FROM node:24-alpine AS runner
 WORKDIR /app
 
-# Create non-root user with proper home directory
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 --home /app --shell /bin/sh weatheruser
+# Create non-root user
+RUN addgroup -S nodejs -g 1001 && \
+    adduser -S weatheruser -u 1001 -G nodejs -h /app -s /bin/sh
 
-# Install runtime dependencies (ffmpeg + canvas runtime libs)
-RUN apt-get update && apt-get install -y \
+# Runtime libs for canvas/ffmpeg
+RUN apk add --no-cache \
     ffmpeg \
-    libcairo2 \
-    libjpeg62-turbo \
-    libpango-1.0-0 \
-    libgif7 \
-    libpixman-1-0 \
-    libpangocairo-1.0-0 \
-    libfreetype6 \
-    && rm -rf /var/lib/apt/lists/*
+    cairo \
+    pango \
+    jpeg \
+    giflib \
+    pixman \
+    freetype
 
-# Copy built application
+# Copy built artifacts
 COPY --from=build-backend --chown=weatheruser:nodejs /app/backend/dist ./backend/dist
 COPY --from=build-frontend --chown=weatheruser:nodejs /app/frontend/dist ./frontend/dist
 COPY --from=build-shared --chown=weatheruser:nodejs /app/shared/dist ./shared/dist
 COPY --from=build-backend --chown=weatheruser:nodejs /app/backend/files ./backend/files
 
-# Copy frontend dist to backend directory for easier access
+# Also provide frontend assets under backend path
 COPY --from=build-frontend --chown=weatheruser:nodejs /app/frontend/dist ./backend/frontend/dist
 
-# Fix the dist structure - move the nested files to the correct location
+# Fix the dist structure - move nested files if present
 RUN mkdir -p /app/backend/dist && \
     if [ -d /app/backend/dist/backend/src ]; then \
-        cp -r /app/backend/dist/backend/src/* /app/backend/dist/ && \
-        rm -rf /app/backend/dist/backend; \
+      cp -r /app/backend/dist/backend/src/* /app/backend/dist/ && \
+      rm -rf /app/backend/dist/backend; \
     fi
 
 # Create charts directory with proper permissions
 RUN mkdir -p /app/backend/files/charts && chown -R weatheruser:nodejs /app/backend/files
 
-# Configure npm to use proper directories
-RUN mkdir -p /app/.npm && chown -R weatheruser:nodejs /app/.npm
-RUN mkdir -p /app/.npm-global && chown -R weatheruser:nodejs /app/.npm-global
+# Configure npm dirs
+RUN mkdir -p /app/.npm /app/.npm-global && chown -R weatheruser:nodejs /app/.npm /app/.npm-global
 
-# (No Mastra CLI output copied)
-
-# Copy production dependencies (hoisted workspaces install)
+# Hoisted node_modules from deps stage
 COPY --from=deps --chown=weatheruser:nodejs /app/node_modules ./node_modules
 
-# Copy package files
+# Copy package files and startup script
 COPY --chown=weatheruser:nodejs package*.json ./
 COPY --chown=weatheruser:nodejs backend/package*.json ./backend/
-
-# Copy startup script
 COPY --chown=weatheruser:nodejs backend/start.sh ./backend/start.sh
 RUN chmod +x /app/backend/start.sh
 
 USER weatheruser
 
-# Ensure the working directory has proper permissions
+# Ensure permissions
 RUN chown -R weatheruser:nodejs /app/backend || true
 
 EXPOSE 3001
 
-# Ensure production environment
-ENV NODE_ENV=production
-ENV PORT=3001
-
-# Configure npm to use proper directories
-ENV NPM_CONFIG_CACHE=/app/.npm
-ENV NPM_CONFIG_PREFIX=/app/.npm-global
-ENV HOME=/app
-
-# Skip problematic native modules
-ENV SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true
-ENV SKIP_NODE_SASS_TESTS=true
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV npm_config_build_from_source=false
-ENV npm_config_cache_min=86400
-ENV npm_config_prefer_offline=true
+# Environment
+ENV NODE_ENV=production \
+    PORT=3001 \
+    NPM_CONFIG_CACHE=/app/.npm \
+    NPM_CONFIG_PREFIX=/app/.npm-global \
+    HOME=/app \
+    SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true \
+    SKIP_NODE_SASS_TESTS=true \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    npm_config_build_from_source=false \
+    npm_config_cache_min=86400 \
+    npm_config_prefer_offline=true
 
 WORKDIR /app/backend
 
-# Verify the environment is set correctly
+# Quick verification
 RUN echo "NODE_ENV is set to: $NODE_ENV"
 
-# Use the startup script for better error handling
 CMD ["./start.sh"]
