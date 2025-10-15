@@ -181,20 +181,38 @@ async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
             const dayNum = parseInt(day);
             return `${monthName} ${dayNum} ${year}`;
         })
-        // Format: Month DD, YYYY (e.g., "October 13, 2025") - remove comma
-        .replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s+(\d{4})/gi, 
-            (_match, month, day, year) => `${month} ${parseInt(day)} ${year}`)
-        // Format: Abbreviated months (e.g., "Oct 13, 2025")
-        .replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s+(\d{4})/gi, 
+        // Format: Month DD, YYYY (e.g., "October 13, 2025") → natural speech
+        .replace(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})/gi,                         
+            (_match, month, day, year) => {
+                const dayNum = parseInt(day)
+                return `${month} ${numberToOrdinal(dayNum)} ${yearToNaturalSpeech(parseInt(year))}`
+            })
+        // Format: Abbreviated months (e.g., "Oct 13, 2025") → natural speech
+        .replace(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(\d{1,2}),?\s+(\d{4})/gi,                                                           
             (_match, monthAbbr, day, year) => {
                 const monthMap: Record<string, string> = {
-                    'Jan': 'January', 'Feb': 'February', 'Mar': 'March', 'Apr': 'April',
-                    'May': 'May', 'Jun': 'June', 'Jul': 'July', 'Aug': 'August',
-                    'Sep': 'September', 'Oct': 'October', 'Nov': 'November', 'Dec': 'December'
+                    'Jan': 'January', 'Feb': 'February', 'Mar': 'March', 'Apr': 'April',                                                                        
+                    'May': 'May', 'Jun': 'June', 'Jul': 'July', 'Aug': 'August',                                                                                
+                    'Sep': 'September', 'Oct': 'October', 'Nov': 'November', 'Dec': 'December'                                                                 
                 };
-                const fullMonth = monthMap[monthAbbr.substring(0, 3)] || monthAbbr;
-                return `${fullMonth} ${parseInt(day)} ${year}`;
+                const fullMonth = monthMap[monthAbbr.substring(0, 3)] || monthAbbr;                                                                            
+                const dayNum = parseInt(day);
+                return `${fullMonth} ${numberToOrdinal(dayNum)} ${yearToNaturalSpeech(parseInt(year))}`;
             })
+        // Format: YYYY-MM-DD → natural speech
+        .replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, (_m, y, m, d) => {
+            const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
+            const monthName = monthNames[parseInt(m) - 1] || m
+            const dayNum = parseInt(d)
+            return `${monthName} ${numberToOrdinal(dayNum)} ${yearToNaturalSpeech(parseInt(y))}`
+        })
+        // Format: MM/DD/YYYY → natural speech
+        .replace(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g, (_m, m, d, y) => {
+            const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December']
+            const monthName = monthNames[parseInt(m) - 1] || m
+            const dayNum = parseInt(d)
+            return `${monthName} ${numberToOrdinal(dayNum)} ${yearToNaturalSpeech(parseInt(y))}`
+        })
         // Handle numbers and metrics more naturally
         .replace(/(\d+)%/g, '$1 percent')          // "5%" → "5 percent"
         .replace(/(\d+)ms\b/g, '$1 milliseconds')  // "100ms" → "100 milliseconds"
@@ -929,12 +947,8 @@ const ttsAnalyticsReportTool = createTool({
                             }
             } else if (actualFocusArea === 'streaming') {
                 // Streaming-focused report
-                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
-                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
+                const startDate = formatDateForSpeech(new Date(timeRange.start));
+                const endDate = formatDateForSpeech(new Date(timeRange.end));
                 
                 summaryText = `## Streaming Performance Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
@@ -973,12 +987,8 @@ const ttsAnalyticsReportTool = createTool({
                 
             } else if (actualFocusArea === 'cdn') {
                 // CDN-focused report with country breakdown
-                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
-                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
+                const startDate = formatDateForSpeech(new Date(timeRange.start));
+                const endDate = formatDateForSpeech(new Date(timeRange.end));
                 
                 summaryText = `## CDN & Geographic Distribution Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
@@ -1016,12 +1026,8 @@ const ttsAnalyticsReportTool = createTool({
                 
             } else if (actualFocusArea === 'engagement') {
                 // Engagement-focused report
-                const startDate = new Date(timeRange.start).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
-                const endDate = new Date(timeRange.end).toLocaleDateString('en-US', { 
-                    month: 'long', day: 'numeric', year: 'numeric' 
-                });
+                const startDate = formatDateForSpeech(new Date(timeRange.start));
+                const endDate = formatDateForSpeech(new Date(timeRange.end));
                 
                 summaryText = `## Viewer Engagement Report\n\n`;
                 summaryText += `**Time Period:** ${startDate} to ${endDate}\n\n`;
