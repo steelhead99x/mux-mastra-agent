@@ -82,10 +82,9 @@ if (rawHost) {
   finalBaseUrl = window.location.origin + '/'
   console.log('[Mastra] Production mode - using same origin:', finalBaseUrl)
 } else {
-  // In development without explicit config, use environment-configured backend port
-  const backendPort = (import.meta as any)?.env?.VITE_BACKEND_PORT || '3001'
-  finalBaseUrl = `http://localhost:${backendPort}`
-  console.log('[Mastra] Development mode - using localhost:', finalBaseUrl)
+  // In development without explicit config, use same-origin to leverage Vite proxy
+  finalBaseUrl = window.location.origin + '/'
+  console.log('[Mastra] Development mode - using same origin (Vite proxy):', finalBaseUrl)
 }
 
 console.log('[Mastra] Final Base URL:', finalBaseUrl)
@@ -95,8 +94,8 @@ console.log('[Mastra] Environment:', { isProduction, isDevelopment })
 async function testConnection() {
   try {
     console.log('[Mastra] Testing connection to:', finalBaseUrl)
-    // Test the health endpoint first
-    const healthUrl = finalBaseUrl.endsWith('/') ? `${finalBaseUrl}health` : `${finalBaseUrl}/health`
+    // Test the health endpoint first (works with same-origin + Vite proxy and direct backend)
+    const healthUrl = finalBaseUrl.endsWith('/') ? `${finalBaseUrl}api/health` : `${finalBaseUrl}/api/health`
     
     const response = await fetch(healthUrl, {
       method: 'GET',
