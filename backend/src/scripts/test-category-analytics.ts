@@ -105,8 +105,8 @@ async function testCategoryAnalytics() {
       if (metrics.viewer_experience_score) {
         console.log(`   Viewer Experience Score: ${(metrics.viewer_experience_score.value * 100).toFixed(1)}/100`);
       }
-      if (metrics.playback_failure_score) {
-        console.log(`   Playback Failure Score: ${metrics.playback_failure_score.value.toFixed(1)}`);
+      if (metrics.playback_failure_percentage) {
+        console.log(`   Playback Failure Percentage: ${metrics.playback_failure_percentage.value.toFixed(2)}%`);
       }
       if (metrics.exits_before_video_start) {
         console.log(`   Exits Before Start: ${metrics.exits_before_video_start.value}`);

@@ -20,7 +20,7 @@ import { resolve, dirname, join } from 'path';
 // Basic memory imports for conversation context
 import { Memory } from "@mastra/memory";
 import { LibSQLStore } from "@mastra/libsql";
-import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary, muxStreamingPerformanceTool, muxCDNMetricsTool, muxEngagementMetricsTool } from '../tools/mux-analytics.js';
+import { muxAnalyticsTool, muxAssetsListTool, muxVideoViewsTool, muxErrorsTool, formatAnalyticsSummary, muxStreamingPerformanceTool, muxCDNMetricsTool, muxEngagementMetricsTool, muxChartGenerationTool } from '../tools/mux-analytics.js';
 import { muxMcpClient as uploadClient } from '../mcp/mux-upload-client.js';
 import { CartesiaClient } from '@cartesia/cartesia-js';
 import { getPreSelectedVoice } from '../utils/cartesia-voices.js';
@@ -1319,10 +1319,10 @@ const ttsAnalyticsReportTool = createTool({
                         }
                     }
                     
-                    if (em.playback_failure_score && em.playback_failure_score.value !== undefined) {
-                        const pfScore = em.playback_failure_score.value;
-                        summaryText += `• **Playback Failure Score:** ${pfScore.toFixed(1)}\n`;
-                        if (pfScore < 10) {
+                    if (em.playback_failure_percentage && em.playback_failure_percentage.value !== undefined) {
+                        const pfPercentage = em.playback_failure_percentage.value;
+                        summaryText += `• **Playback Failure Percentage:** ${pfPercentage.toFixed(2)}%\n`;
+                        if (pfPercentage < 2) {
                             summaryText += `  - ✅ Excellent - minimal playback failures\n`;
                         } else {
                             summaryText += `  - ⚠️ Review required - investigate failure patterns\n`;
@@ -1400,8 +1400,8 @@ const ttsAnalyticsReportTool = createTool({
                     const vesScore = em.viewer_experience_score.value;
                     summaryText += `• **Viewer Experience Score:** ${(vesScore * 100).toFixed(1)}/100\n`;
                 }
-                if (em.playback_failure_score && em.playback_failure_score.value !== undefined) {
-                    summaryText += `• **Playback Failure Score:** ${em.playback_failure_score.value.toFixed(1)}\n`;
+                if (em.playback_failure_percentage && em.playback_failure_percentage.value !== undefined) {
+                    summaryText += `• **Playback Failure Percentage:** ${em.playback_failure_percentage.value.toFixed(2)}%\n`;
                 }
                 
             } else if (analyticsResult?.success) {
@@ -1852,6 +1852,38 @@ function buildSystemPrompt() {
         '- muxAnalyticsTool: Overall performance metrics and health scores from Mux Data',
         '- muxAssetsListTool: Query Mux Video assets, status, encoding progress',
         '- muxVideoViewsTool: Detailed view data from Mux Data per asset or timeframe',
+        '- muxChartGenerationTool: Generate visual charts (line, bar, pie, multiline) from analytics data',
+        '',
+        'CHART GENERATION (WHEN USER ASKS FOR CHARTS, GRAPHS, OR VISUALIZATIONS):',
+        '- ALWAYS generate charts when users request visualizations, graphs, charts, or say "include a chart"',
+        '- PROACTIVELY generate charts for common data types even if not explicitly requested:',
+        '  * Geographic distribution → bar chart + pie chart',
+        '  * Error breakdown → pie chart or bar chart',
+        '  * Time series metrics → line chart',
+        '  * Platform/device breakdown → bar chart',
+        '  * Performance comparison → multi-line chart',
+        '- First fetch the data using appropriate analytics tools (muxAnalyticsTool, muxCDNMetricsTool, etc.)',
+        '- Transform the data into chart format:',
+        '  * Line charts: For time series data (views over time, errors over time, rebuffering trends, etc.)',
+        '  * Bar charts: For categorical comparisons (geographic distribution, platform breakdown, device types, etc.)',
+        '  * Pie charts: For distribution percentages (error types, country shares, device distribution, etc.)',
+        '  * Multi-line charts: For comparing multiple metrics (error rate vs rebuffering, multiple performance metrics, etc.)',
+        '- Call muxChartGenerationTool with the transformed data',
+        '- Include the chart image URL in your response using markdown image syntax: ![Chart Title](chartUrl)',
+        '- For geographic queries: Generate BOTH bar chart (views by country) AND pie chart (distribution %)',
+        '- For error analysis: Generate pie chart showing error type distribution',
+        '- For time series: Generate line chart showing trends over time',
+        '- Example workflow:',
+        '  1. User: "Show me geographic distribution of viewers"',
+        '  2. Call muxCDNMetricsTool to get geographic data',
+        '  3. Transform country breakdown into chart data: [{label: "US", value: 1000}, {label: "CA", value: 500}, ...]',
+        '  4. Call muxChartGenerationTool TWICE:',
+        '     - chartType: "bar", title: "Views by Country", data: countryData',
+        '     - chartType: "pie", title: "Country Distribution", data: countryData',
+        '  5. Display: "## Geographic Distribution\\n\\n![Views by Country](barChartUrl)\\n\\n![Country Distribution](pieChartUrl)"',
+        '- Chart URLs are automatically served and accessible',
+        '- Always include chart title and axis labels for clarity',
+        '',
         '',
         'AUDIO SUMMARY REQUIREMENT (WHEN EXPLICITLY REQUESTED):',
         '- Audio reports take 30-60 seconds to generate (TTS + upload)',
@@ -1985,6 +2017,73 @@ function buildSystemPrompt() {
         '',
         '** KEY POINT: focusArea=\'cdn\' ensures audio includes country breakdown **',
         '',
+        'QUERY TYPE HANDLING (SPECIFIC RESPONSES FOR EACH QUERY TYPE):',
+        '',
+        '1. STREAMING PERFORMANCE METRICS:',
+        '   - Use muxStreamingPerformanceTool',
+        '   - Focus: VST, rebuffering %, rebuffer frequency, segment delivery',
+        '   - Generate: Line chart showing metrics over time if data available',
+        '   - Format: Compact metrics table + chart + recommendations',
+        '',
+        '2. ERROR RATES & PLAYBACK ISSUES:',
+        '   - Use muxErrorsTool + muxAnalyticsTool',
+        '   - Focus: Error counts, error %, platform breakdown, error types',
+        '   - Generate: Pie chart (error types) + bar chart (errors by platform)',
+        '   - Format: Error summary table + charts + prioritized action items',
+        '',
+        '3. CDN OPTIMIZATION:',
+        '   - Use muxCDNMetricsTool',
+        '   - Focus: Geographic distribution, ISP performance, CDN efficiency',
+        '   - Generate: Bar chart (views by country) + pie chart (country %)',
+        '   - Format: Geographic breakdown + charts + CDN recommendations',
+        '',
+        '4. USER ENGAGEMENT:',
+        '   - Use muxEngagementMetricsTool + muxAnalyticsTool',
+        '   - Focus: Viewer experience score, watch time, completion rates',
+        '   - Generate: Line chart (engagement trends) if time series available',
+        '   - Format: Engagement metrics + trends + insights',
+        '',
+        '5. TOP PERFORMING VIDEOS:',
+        '   - Use muxAssetsListTool + muxVideoViewsTool',
+        '   - Focus: View counts, watch time, engagement per asset',
+        '   - Generate: Bar chart (top 10 videos by views)',
+        '   - Format: Ranked table + chart + performance highlights',
+        '',
+        '6. VIEWS & WATCH TIME:',
+        '   - Use muxAnalyticsTool + muxVideoViewsTool',
+        '   - Focus: Total views, watch time, session duration',
+        '   - Generate: Line chart (views over time)',
+        '   - Format: Summary stats + time series chart + trends',
+        '',
+        '7. VIDEO QUALITY & BITRATE:',
+        '   - Use muxStreamingPerformanceTool + muxAnalyticsTool',
+        '   - Focus: Resolution distribution, bitrate adaptation, quality metrics',
+        '   - Generate: Bar chart (resolution distribution) if data available',
+        '   - Format: Quality metrics + distribution + recommendations',
+        '',
+        '8. GEOGRAPHIC DISTRIBUTION:',
+        '   - Use muxCDNMetricsTool',
+        '   - Focus: Country breakdown, views by region',
+        '   - Generate: Bar chart (views by country) + pie chart (distribution %)',
+        '   - Format: Country table + both charts + geographic insights',
+        '',
+        '9. DEVICE & BROWSER ANALYTICS:',
+        '   - Use muxAnalyticsTool with filters or breakdowns',
+        '   - Focus: OS distribution, device types, browser breakdown',
+        '   - Generate: Bar chart (by OS) + pie chart (device types)',
+        '   - Format: Device breakdown table + charts + platform insights',
+        '',
+        '10. BUFFERING & REBUFFERING:',
+        '    - Use muxStreamingPerformanceTool',
+        '    - Focus: Rebuffer %, frequency, duration, trends',
+        '    - Generate: Line chart (rebuffering over time)',
+        '    - Format: Rebuffer metrics + trend chart + optimization tips',
+        '',
+        '11. MULTIPLE CHARTS REQUEST:',
+        '    - Use multiple analytics tools as needed',
+        '    - Generate: Multiple charts (line, bar, pie as appropriate)',
+        '    - Format: Comprehensive analysis with multiple visualizations',
+        '',
         'ANALYSIS APPROACH (MUX PLATFORM FOCUSED):',
         '- ALL data comes from Mux Data API - real production analytics from stream.mux.com',
         '- Focus on key streaming KPIs: error rates, rebuffering, VST, playback failures',
@@ -1995,6 +2094,9 @@ function buildSystemPrompt() {
         '- Include specific Mux API commands, Data dashboard queries, and diagnostic procedures',
         '- Reference Mux-specific features: signed URLs, upload flow, webhook events',
         '- Never expose API keys or sensitive credentials (MUX_TOKEN_ID, MUX_TOKEN_SECRET)',
+        '- ALWAYS generate charts when data is available and visualization would be helpful',
+        '- Use tables for structured data (rankings, breakdowns, comparisons)',
+        '- Use charts for trends, distributions, and comparisons',
         '',
         'COMMUNICATION PROTOCOL:',
         '- ENGINEER-TO-ENGINEER: Use technical jargon, Mux API specifics, protocol specs',
@@ -2037,6 +2139,7 @@ export const muxAnalyticsAgent: any = new Agent({
         muxAssetsListTool,
         muxVideoViewsTool,
         muxErrorsTool,
+        muxChartGenerationTool,
         ttsAnalyticsReportTool,
         ttsJobStatusTool,
     },

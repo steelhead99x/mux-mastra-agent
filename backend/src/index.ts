@@ -239,7 +239,15 @@ if (!isPlaygroundMode) {
       // Try to get stream before setting response headers
       let stream;
       try {
+        console.log('[stream] Calling agent.stream with', messages.length, 'messages');
         stream = await agent.stream(messages);
+        console.log('[stream] Got stream object, keys:', stream ? Object.keys(stream) : 'null');
+        if (!stream) {
+          throw new Error('Agent returned null stream');
+        }
+        if (!stream.textStream && !stream.text) {
+          console.warn('[stream] Stream has no textStream or text property');
+        }
       } catch (agentError) {
         console.error('[stream] Agent execution failed:', agentError);
         // Return error before headers are sent
@@ -269,22 +277,58 @@ if (!isPlaygroundMode) {
       if (stream && stream.textStream) {
         try {
           let chunkCount = 0;
+          let hasWritten = false;
+          
+          // Handle client disconnect
+          req.on('close', () => {
+            console.log('[stream] Client disconnected');
+          });
+          
           for await (const chunk of stream.textStream) {
+            // Check if response is still writable
+            if (res.writableEnded || res.destroyed) {
+              console.log('[stream] Response ended, stopping stream');
+              break;
+            }
+            
             if (chunk && typeof chunk === 'string') {
               chunkCount++;
-              res.write(chunk);
-              // Flush the buffer to send data immediately
-              if (typeof (res as any).flush === 'function') {
-                (res as any).flush();
+              // Track if we've written non-whitespace content
+              if (chunk.trim().length > 0) {
+                hasWritten = true;
+              }
+              try {
+                res.write(chunk);
+                // Flush the buffer to send data immediately
+                if (typeof (res as any).flush === 'function') {
+                  (res as any).flush();
+                }
+              } catch (writeError) {
+                console.error('[stream] Write error:', writeError);
+                break;
               }
             }
           }
-          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks`);
-          res.end();
+          
+          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks, hasWritten: ${hasWritten}`);
+          
+          // Only end if we haven't already
+          if (!res.writableEnded && !res.destroyed) {
+            if (!hasWritten) {
+              // Send a placeholder if nothing was written
+              res.write('\n[Response completed]');
+            }
+            res.end();
+          }
         } catch (streamError) {
           console.error('[stream] Stream error:', streamError);
-          // Don't write error to stream, just end cleanly
-          if (!res.writableEnded) {
+          // Try to send error message if possible
+          if (!res.writableEnded && !res.destroyed) {
+            try {
+              res.write(`\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+            } catch (writeError) {
+              console.error('[stream] Failed to write error:', writeError);
+            }
             res.end();
           }
         }
@@ -292,6 +336,7 @@ if (!isPlaygroundMode) {
         res.write(stream.text);
         res.end();
       } else {
+        console.warn('[stream] No stream content available, stream object:', stream ? Object.keys(stream) : 'null');
         res.write('No content available');
         res.end();
       }
@@ -335,7 +380,15 @@ if (!isPlaygroundMode) {
       // Try to get stream before setting response headers
       let stream;
       try {
+        console.log('[streamVNext] Calling agent.stream with', messages.length, 'messages');
         stream = await agent.stream(messages);
+        console.log('[streamVNext] Got stream object, keys:', stream ? Object.keys(stream) : 'null');
+        if (!stream) {
+          throw new Error('Agent returned null stream');
+        }
+        if (!stream.textStream && !stream.text) {
+          console.warn('[streamVNext] Stream has no textStream or text property');
+        }
       } catch (agentError) {
         console.error('[streamVNext] Agent execution failed:', agentError);
         // Return error before headers are sent
@@ -365,22 +418,58 @@ if (!isPlaygroundMode) {
       if (stream && stream.textStream) {
         try {
           let chunkCount = 0;
+          let hasWritten = false;
+          
+          // Handle client disconnect
+          req.on('close', () => {
+            console.log('[streamVNext] Client disconnected');
+          });
+          
           for await (const chunk of stream.textStream) {
+            // Check if response is still writable
+            if (res.writableEnded || res.destroyed) {
+              console.log('[streamVNext] Response ended, stopping stream');
+              break;
+            }
+            
             if (chunk && typeof chunk === 'string') {
               chunkCount++;
-              res.write(chunk);
-              // Flush the buffer to send data immediately
-              if (typeof (res as any).flush === 'function') {
-                (res as any).flush();
+              // Track if we've written non-whitespace content
+              if (chunk.trim().length > 0) {
+                hasWritten = true;
+              }
+              try {
+                res.write(chunk);
+                // Flush the buffer to send data immediately
+                if (typeof (res as any).flush === 'function') {
+                  (res as any).flush();
+                }
+              } catch (writeError) {
+                console.error('[streamVNext] Write error:', writeError);
+                break;
               }
             }
           }
-          console.log(`[streamVNext] Stream completed successfully with ${chunkCount} chunks`);
-          res.end();
+          
+          console.log(`[streamVNext] Stream completed successfully with ${chunkCount} chunks, hasWritten: ${hasWritten}`);
+          
+          // Only end if we haven't already
+          if (!res.writableEnded && !res.destroyed) {
+            if (!hasWritten) {
+              // Send a placeholder if nothing was written
+              res.write('\n[Response completed]');
+            }
+            res.end();
+          }
         } catch (streamError) {
           console.error('[streamVNext] Stream error:', streamError);
-          // Don't write error to stream, just end cleanly
-          if (!res.writableEnded) {
+          // Try to send error message if possible
+          if (!res.writableEnded && !res.destroyed) {
+            try {
+              res.write(`\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+            } catch (writeError) {
+              console.error('[streamVNext] Failed to write error:', writeError);
+            }
             res.end();
           }
         }
@@ -388,6 +477,7 @@ if (!isPlaygroundMode) {
         res.write(stream.text);
         res.end();
       } else {
+        console.warn('[streamVNext] No stream content available, stream object:', stream ? Object.keys(stream) : 'null');
         res.write('No content available');
         res.end();
       }

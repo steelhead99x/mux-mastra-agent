@@ -32,7 +32,8 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: `http://localhost:${env.BACKEND_PORT || '3001'}`,
           changeOrigin: true,
-          timeout: 10000, // 10 second timeout
+          timeout: 300000, // 5 minute timeout for streaming
+          ws: true, // Enable websocket proxying
           configure: (proxy, _options) => {
             proxy.on('error', (err, _req, res) => {
               console.log('[vite] proxy error', err);
@@ -48,6 +49,18 @@ export default defineConfig(({ mode }) => {
               // Log proxy requests in development
               if (mode === 'development') {
                 console.log(`[vite] Proxying ${req.method} ${req.url} to backend`);
+              }
+              // Remove timeout for streaming endpoints
+              if (req.url?.includes('/stream')) {
+                proxyReq.setTimeout(0); // No timeout for streaming
+              }
+            });
+            proxy.on('proxyRes', (proxyRes, req, _res) => {
+              // For streaming endpoints, ensure proper headers
+              if (req.url?.includes('/stream')) {
+                // Remove any timeout headers that might interfere
+                proxyRes.headers['x-accel-buffering'] = 'no';
+                proxyRes.headers['cache-control'] = 'no-cache';
               }
             });
           },

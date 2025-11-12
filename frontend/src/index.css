@@ -114,7 +114,7 @@ body {
 
 /* Enhanced chat message formatting - optimized */
 .chat-message {
-  line-height: 1.5; /* Tighter line height for compact format */
+  line-height: 1.4; /* Tighter line height for compact format */
   word-wrap: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
@@ -131,7 +131,7 @@ body {
 
 .prose p {
   color: var(--fg) !important;
-  margin: 0.4em 0; /* Tighter paragraph spacing */
+  margin: 0.25em 0; /* Tighter paragraph spacing */
 }
 
 .prose strong {
@@ -145,30 +145,30 @@ body {
 }
 
 .prose ul, .prose ol {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
+  margin: 0.25em 0;
+  padding-left: 1.25em;
 }
 
 .prose li {
-  margin: 0.2em 0; /* Tight list item spacing */
+  margin: 0.15em 0; /* Tight list item spacing */
 }
 
 .prose h2 {
-  margin-top: 0.8em;
-  margin-bottom: 0.4em;
-  font-size: 1.1em;
-  font-weight: 600;
-}
-
-.prose h3 {
-  margin-top: 0.6em;
-  margin-bottom: 0.3em;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
   font-size: 1em;
   font-weight: 600;
 }
 
+.prose h3 {
+  margin-top: 0.4em;
+  margin-bottom: 0.2em;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
 .chat-message p {
-  margin: 0.4em 0; /* Consistent paragraph spacing */
+  margin: 0.25em 0; /* Consistent paragraph spacing */
 }
 
 .chat-message p:first-child {
@@ -239,6 +239,50 @@ body {
   scroll-behavior: smooth;
   /* Ensure proper scrolling on all devices */
   -webkit-overflow-scrolling: touch;
+}
+
+/* Markdown content wrapper - remove extra spacing */
+.markdown-content {
+  margin: 0;
+  padding: 0;
+}
+
+.markdown-content > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-content > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Table improvements for compact layout */
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: auto;
+}
+
+/* Allow text wrapping in cells but keep compact */
+.markdown-content table th,
+.markdown-content table td {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* First column can wrap normally, others try to stay compact */
+.markdown-content table th:not(:first-child),
+.markdown-content table td:not(:first-child) {
+  white-space: nowrap;
+  min-width: fit-content;
+}
+
+/* Allow wrapping for very long content */
+.markdown-content table td[style*="white-space: nowrap"] {
+  white-space: normal !important;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Message bubble improvements */

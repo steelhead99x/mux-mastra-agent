@@ -193,13 +193,13 @@ function analyzeMetrics(data: any): {
         healthScore -= 20;
     }
     
-    // Check playback failure score
-    if (data.playback_failure_score > 50) {
-        issues.push(`High playback failure score: ${data.playback_failure_score}`);
+    // Check playback failure percentage
+    if (data.playback_failure_percentage > 5) {
+        issues.push(`High playback failure percentage: ${data.playback_failure_percentage.toFixed(2)}%`);
         recommendations.push('Critical: Investigate player configuration, DRM settings, and network delivery issues immediately.');
         healthScore -= 30;
-    } else if (data.playback_failure_score > 20) {
-        issues.push(`Elevated playback failure score: ${data.playback_failure_score}`);
+    } else if (data.playback_failure_percentage > 2) {
+        issues.push(`Elevated playback failure percentage: ${data.playback_failure_percentage.toFixed(2)}%`);
         recommendations.push('Review player logs and monitor for systematic failures.');
         healthScore -= 15;
     }
@@ -461,7 +461,7 @@ export const muxEngagementMetricsTool = createTool({
             // Fetch engagement-specific metrics
             const engagementMetrics = [
                 'viewer_experience_score',
-                'playback_failure_score',
+                'playback_failure_percentage',
                 'exits_before_video_start'
             ];
             
@@ -996,7 +996,7 @@ export const muxErrorsTool = createTool({
             // We'll try multiple error-related metrics to get actual counts
             if (errorsData && tools['list_breakdown_values']) {
                 const metricsToTry = [
-                    'playback_failure_score',  // Overall playback failures including errors
+                    'playback_failure_percentage',  // Overall playback failures including errors
                     'exits_before_video_start', // Exits that might be error-related
                     'video_startup_failure_percentage' // Startup failures
                 ];
@@ -1325,4 +1325,122 @@ export function formatAnalyticsSummary(
     }
     return (sliced.endsWith('.') ? sliced : sliced + '...').trim();
 }
+
+/**
+ * Mux Chart Generation Tool - Generate visual charts from analytics data
+ */
+export const muxChartGenerationTool = createTool({
+    id: "mux-chart-generation",
+    description: "Generate visual charts (line, bar, pie, or multi-line) from Mux analytics data. Returns a URL to the generated chart image. Use this when users ask for charts, graphs, or visualizations of analytics data.",
+    inputSchema: z.object({
+        chartType: z.enum(['line', 'bar', 'pie', 'multiline']).describe("Type of chart to generate: 'line' for time series, 'bar' for categorical comparisons, 'pie' for distributions, 'multiline' for comparing multiple metrics"),
+        data: z.array(z.object({
+            label: z.string().describe("Label for the data point (e.g., date, country, platform)"),
+            value: z.number().describe("Numeric value for this data point")
+        })).describe("Array of data points with labels and values"),
+        multilineData: z.array(z.object({
+            label: z.string().describe("Dataset label (e.g., 'Error Rate', 'Rebuffering')"),
+            data: z.array(z.object({
+                label: z.string(),
+                value: z.number()
+            })).describe("Data points for this dataset"),
+            color: z.string().optional().describe("Optional color for this line (hex format)")
+        })).optional().describe("For multiline charts: array of datasets to compare"),
+        title: z.string().describe("Chart title"),
+        xAxisLabel: z.string().optional().describe("X-axis label"),
+        yAxisLabel: z.string().optional().describe("Y-axis label"),
+    }),
+    execute: async ({ context }) => {
+        const { chartType, data, multilineData, title, xAxisLabel, yAxisLabel } = context as {
+            chartType: 'line' | 'bar' | 'pie' | 'multiline';
+            data: Array<{ label: string; value: number }>;
+            multilineData?: Array<{ label: string; data: Array<{ label: string; value: number }>; color?: string }>;
+            title: string;
+            xAxisLabel?: string;
+            yAxisLabel?: string;
+        };
+        
+        try {
+            const { 
+                generateMuxLineChart, 
+                generateMuxBarChart, 
+                generateMuxPieChart, 
+                generateMuxMultiLineChart,
+                getChartUrl 
+            } = await import('../utils/chartGenerator.js');
+            
+            let chartPath: string;
+            
+            switch (chartType) {
+                case 'line':
+                    if (!data || data.length === 0) {
+                        throw new Error('Line chart requires data array with at least one data point');
+                    }
+                    chartPath = await generateMuxLineChart(data, {
+                        title,
+                        xAxisLabel: xAxisLabel || 'Time',
+                        yAxisLabel: yAxisLabel || 'Value'
+                    });
+                    break;
+                    
+                case 'bar':
+                    if (!data || data.length === 0) {
+                        throw new Error('Bar chart requires data array with at least one data point');
+                    }
+                    chartPath = await generateMuxBarChart(data, {
+                        title,
+                        xAxisLabel: xAxisLabel || 'Category',
+                        yAxisLabel: yAxisLabel || 'Value'
+                    });
+                    break;
+                    
+                case 'pie':
+                    if (!data || data.length === 0) {
+                        throw new Error('Pie chart requires data array with at least one data point');
+                    }
+                    chartPath = await generateMuxPieChart(data, {
+                        title,
+                        xAxisLabel: xAxisLabel,
+                        yAxisLabel: yAxisLabel
+                    });
+                    break;
+                    
+                case 'multiline':
+                    if (!multilineData || multilineData.length === 0) {
+                        throw new Error('Multi-line chart requires multilineData array with at least one dataset');
+                    }
+                    chartPath = await generateMuxMultiLineChart(multilineData, {
+                        title,
+                        xAxisLabel: xAxisLabel || 'Time',
+                        yAxisLabel: yAxisLabel || 'Value'
+                    });
+                    break;
+                    
+                default:
+                    throw new Error(`Unsupported chart type: ${chartType}`);
+            }
+            
+            const chartUrl = await getChartUrl(chartPath);
+            
+            console.log(`[mux-chart-generation] Generated ${chartType} chart: ${chartUrl}`);
+            
+            return {
+                success: true,
+                chartUrl,
+                chartPath,
+                chartType,
+                title
+            };
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const sanitizedError = sanitizeApiKey(errorMessage);
+            console.error('[mux-chart-generation] Error:', sanitizedError);
+            return {
+                success: false,
+                error: sanitizedError,
+                message: 'Failed to generate chart'
+            };
+        }
+    },
+});
 

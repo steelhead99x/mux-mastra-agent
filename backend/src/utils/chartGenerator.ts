@@ -219,3 +219,417 @@ export async function getChartUrl(chartPath: string): Promise<string> {
     const fileName = basename(chartPath);
     return `${baseUrl}/files/charts/${fileName}`;
 }
+
+// ============================================================================
+// MUX ANALYTICS CHART GENERATION
+// ============================================================================
+
+interface MuxChartConfig extends ChartConfig {
+    title?: string;
+    xAxisLabel?: string;
+    yAxisLabel?: string;
+}
+
+const MUX_DEFAULT_CONFIG: Required<MuxChartConfig> = {
+    ...DEFAULT_CONFIG,
+    width: 1000,
+    height: 500,
+    backgroundColor: '#0f172a', // Dark slate background
+    textColor: '#f1f5f9', // Light text
+    gridColor: '#334155', // Medium gray grid
+    lineColor: '#3b82f6', // Blue for primary metric
+    pointColor: '#60a5fa', // Lighter blue for points
+    title: 'Mux Analytics Chart',
+    xAxisLabel: 'Time',
+    yAxisLabel: 'Value'
+};
+
+/**
+ * Generate a line chart for Mux metrics over time
+ */
+export async function generateMuxLineChart(
+    data: Array<{ label: string; value: number }>,
+    config: MuxChartConfig = {}
+): Promise<string> {
+    const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
+    
+    const canvas = createCanvas(finalConfig.width, finalConfig.height);
+    const ctx = canvas.getContext('2d');
+    
+    const labels = data.map(d => d.label);
+    const values = data.map(d => d.value);
+    
+    const chart = new Chart(ctx as any, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: finalConfig.yAxisLabel || 'Value',
+                data: values,
+                borderColor: finalConfig.lineColor,
+                backgroundColor: finalConfig.lineColor + '30',
+                pointBackgroundColor: finalConfig.pointColor,
+                pointBorderColor: finalConfig.pointColor,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: finalConfig.title || 'Mux Analytics Chart',
+                    font: { size: 22, weight: 'bold' },
+                    color: finalConfig.textColor,
+                    padding: 20
+                },
+                legend: {
+                    display: true,
+                    labels: {
+                        color: finalConfig.textColor,
+                        font: { size: 14 }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.xAxisLabel || 'Time',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 },
+                        maxRotation: 45,
+                        minRotation: 0
+                    },
+                    grid: { color: finalConfig.gridColor }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.yAxisLabel || 'Value',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 }
+                    },
+                    grid: { color: finalConfig.gridColor }
+                }
+            }
+        }
+    });
+    
+    await chart.render();
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const baseDir = resolve(process.cwd(), 'files/charts');
+    const chartPath = join(baseDir, `mux-line-chart-${timestamp}.png`);
+    
+    await fs.mkdir(baseDir, { recursive: true });
+    const buffer = canvas.toBuffer('image/png');
+    await fs.writeFile(chartPath, buffer);
+    
+    console.log(`[generateMuxLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    return chartPath;
+}
+
+/**
+ * Generate a bar chart for Mux breakdown data (geographic, platform, etc.)
+ */
+export async function generateMuxBarChart(
+    data: Array<{ label: string; value: number }>,
+    config: MuxChartConfig = {}
+): Promise<string> {
+    const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
+    
+    const canvas = createCanvas(finalConfig.width, finalConfig.height);
+    const ctx = canvas.getContext('2d');
+    
+    const labels = data.map(d => d.label);
+    const values = data.map(d => d.value);
+    
+    // Use a color palette for bars
+    const colors = [
+        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'
+    ];
+    
+    const chart = new Chart(ctx as any, {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{
+                label: finalConfig.yAxisLabel || 'Value',
+                data: values,
+                backgroundColor: labels.map((_, i) => colors[i % colors.length] + 'CC'),
+                borderColor: labels.map((_, i) => colors[i % colors.length]),
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: finalConfig.title || 'Mux Analytics Chart',
+                    font: { size: 22, weight: 'bold' },
+                    color: finalConfig.textColor,
+                    padding: 20
+                },
+                legend: {
+                    display: true,
+                    labels: {
+                        color: finalConfig.textColor,
+                        font: { size: 14 }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.xAxisLabel || 'Category',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 },
+                        maxRotation: 45,
+                        minRotation: 0
+                    },
+                    grid: { color: finalConfig.gridColor }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.yAxisLabel || 'Value',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 }
+                    },
+                    grid: { color: finalConfig.gridColor }
+                }
+            }
+        }
+    });
+    
+    await chart.render();
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const baseDir = resolve(process.cwd(), 'files/charts');
+    const chartPath = join(baseDir, `mux-bar-chart-${timestamp}.png`);
+    
+    await fs.mkdir(baseDir, { recursive: true });
+    const buffer = canvas.toBuffer('image/png');
+    await fs.writeFile(chartPath, buffer);
+    
+    console.log(`[generateMuxBarChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    return chartPath;
+}
+
+/**
+ * Generate a pie chart for Mux distribution data
+ */
+export async function generateMuxPieChart(
+    data: Array<{ label: string; value: number }>,
+    config: MuxChartConfig = {}
+): Promise<string> {
+    const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
+    
+    const canvas = createCanvas(finalConfig.width, finalConfig.height);
+    const ctx = canvas.getContext('2d');
+    
+    const labels = data.map(d => d.label);
+    const values = data.map(d => d.value);
+    
+    const colors = [
+        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
+        '#14b8a6', '#a855f7', '#f43f5e', '#fb923c', '#0ea5e9'
+    ];
+    
+    const chart = new Chart(ctx as any, {
+        type: 'pie',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                backgroundColor: labels.map((_, i) => colors[i % colors.length]),
+                borderColor: finalConfig.backgroundColor,
+                borderWidth: 3
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: finalConfig.title || 'Mux Analytics Chart',
+                    font: { size: 22, weight: 'bold' },
+                    color: finalConfig.textColor,
+                    padding: 20
+                },
+                legend: {
+                    display: true,
+                    position: 'right',
+                    labels: {
+                        color: finalConfig.textColor,
+                        font: { size: 12 },
+                        padding: 15
+                    }
+                }
+            }
+        }
+    });
+    
+    await chart.render();
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const baseDir = resolve(process.cwd(), 'files/charts');
+    const chartPath = join(baseDir, `mux-pie-chart-${timestamp}.png`);
+    
+    await fs.mkdir(baseDir, { recursive: true });
+    const buffer = canvas.toBuffer('image/png');
+    await fs.writeFile(chartPath, buffer);
+    
+    console.log(`[generateMuxPieChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    return chartPath;
+}
+
+/**
+ * Generate a multi-line chart comparing multiple Mux metrics
+ */
+export async function generateMuxMultiLineChart(
+    datasets: Array<{ label: string; data: Array<{ label: string; value: number }>; color?: string }>,
+    config: MuxChartConfig = {}
+): Promise<string> {
+    const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
+    
+    const canvas = createCanvas(finalConfig.width, finalConfig.height);
+    const ctx = canvas.getContext('2d');
+    
+    // Get all unique labels from all datasets
+    const allLabels = new Set<string>();
+    datasets.forEach(ds => ds.data.forEach(d => allLabels.add(d.label)));
+    const labels = Array.from(allLabels).sort();
+    
+    // Default colors for datasets
+    const defaultColors = [
+        '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+        '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'
+    ];
+    
+    const chartDatasets = datasets.map((ds, idx) => {
+        const values = labels.map(label => {
+            const dataPoint = ds.data.find(d => d.label === label);
+            return dataPoint ? dataPoint.value : null;
+        });
+        
+        return {
+            label: ds.label,
+            data: values,
+            borderColor: ds.color || defaultColors[idx % defaultColors.length],
+            backgroundColor: (ds.color || defaultColors[idx % defaultColors.length]) + '30',
+            pointBackgroundColor: ds.color || defaultColors[idx % defaultColors.length],
+            pointBorderColor: ds.color || defaultColors[idx % defaultColors.length],
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            borderWidth: 2,
+            fill: false,
+            tension: 0.4
+        };
+    });
+    
+    const chart = new Chart(ctx as any, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: chartDatasets
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: false,
+            plugins: {
+                title: {
+                    display: true,
+                    text: finalConfig.title || 'Mux Analytics Comparison',
+                    font: { size: 22, weight: 'bold' },
+                    color: finalConfig.textColor,
+                    padding: 20
+                },
+                legend: {
+                    display: true,
+                    labels: {
+                        color: finalConfig.textColor,
+                        font: { size: 14 }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.xAxisLabel || 'Time',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 },
+                        maxRotation: 45,
+                        minRotation: 0
+                    },
+                    grid: { color: finalConfig.gridColor }
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: true,
+                        text: finalConfig.yAxisLabel || 'Value',
+                        color: finalConfig.textColor,
+                        font: { size: 14, weight: 'bold' }
+                    },
+                    ticks: {
+                        color: finalConfig.textColor,
+                        font: { size: 11 }
+                    },
+                    grid: { color: finalConfig.gridColor }
+                }
+            }
+        }
+    });
+    
+    await chart.render();
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const baseDir = resolve(process.cwd(), 'files/charts');
+    const chartPath = join(baseDir, `mux-multiline-chart-${timestamp}.png`);
+    
+    await fs.mkdir(baseDir, { recursive: true });
+    const buffer = canvas.toBuffer('image/png');
+    await fs.writeFile(chartPath, buffer);
+    
+    console.log(`[generateMuxMultiLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    return chartPath;
+}

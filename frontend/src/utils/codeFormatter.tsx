@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
 
 /**
@@ -17,10 +18,10 @@ export interface FormattedSegment {
  * Custom markdown components with theme-aware styling
  */
 const markdownComponents: Partial<Components> = {
-  // Headers
+  // Headers - compact spacing
   h1: ({ children, ...props }) => (
     <h1 
-      className="text-2xl font-bold mb-3 mt-4 pb-2 border-b"
+      className="text-lg font-bold mb-1.5 mt-2 pb-1 border-b"
       style={{ 
         color: 'var(--fg)',
         borderColor: 'var(--border)'
@@ -32,7 +33,7 @@ const markdownComponents: Partial<Components> = {
   ),
   h2: ({ children, ...props }) => (
     <h2 
-      className="text-xl font-bold mb-2 mt-3"
+      className="text-base font-bold mb-1 mt-1.5"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -41,7 +42,7 @@ const markdownComponents: Partial<Components> = {
   ),
   h3: ({ children, ...props }) => (
     <h3 
-      className="text-lg font-semibold mb-2 mt-3"
+      className="text-sm font-semibold mb-0.5 mt-1.5"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -50,7 +51,7 @@ const markdownComponents: Partial<Components> = {
   ),
   h4: ({ children, ...props }) => (
     <h4 
-      className="text-base font-semibold mb-2 mt-2"
+      className="text-xs font-semibold mb-0.5 mt-1"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -59,7 +60,7 @@ const markdownComponents: Partial<Components> = {
   ),
   h5: ({ children, ...props }) => (
     <h5 
-      className="text-sm font-semibold mb-1 mt-2"
+      className="text-xs font-semibold mb-0.5 mt-1"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -68,7 +69,7 @@ const markdownComponents: Partial<Components> = {
   ),
   h6: ({ children, ...props }) => (
     <h6 
-      className="text-xs font-semibold mb-1 mt-2"
+      className="text-[10px] font-semibold mb-0.5 mt-1"
       style={{ color: 'var(--fg-muted)' }}
       {...props}
     >
@@ -76,10 +77,10 @@ const markdownComponents: Partial<Components> = {
     </h6>
   ),
   
-  // Paragraphs
+  // Paragraphs - compact spacing
   p: ({ children, ...props }) => (
     <p 
-      className="mb-3 leading-relaxed"
+      className="mb-1 leading-tight"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -87,10 +88,10 @@ const markdownComponents: Partial<Components> = {
     </p>
   ),
   
-  // Lists
+  // Lists - compact spacing
   ul: ({ children, ...props }) => (
     <ul 
-      className="list-disc list-inside mb-3 space-y-1 ml-2"
+      className="list-disc list-inside mb-1 space-y-0.5 ml-2"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -99,7 +100,7 @@ const markdownComponents: Partial<Components> = {
   ),
   ol: ({ children, ...props }) => (
     <ol 
-      className="list-decimal list-inside mb-3 space-y-1 ml-2"
+      className="list-decimal list-inside mb-1 space-y-0.5 ml-2"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -108,7 +109,7 @@ const markdownComponents: Partial<Components> = {
   ),
   li: ({ children, ...props }) => (
     <li 
-      className="ml-4"
+      className="ml-3"
       style={{ color: 'var(--fg)' }}
       {...props}
     >
@@ -116,7 +117,7 @@ const markdownComponents: Partial<Components> = {
     </li>
   ),
   
-  // Inline code
+  // Inline code - compact sizing
   code: ({ inline, children, className, ...props }: any) => {
     // Extract language from className (format: language-xxx)
     const match = /language-(\w+)/.exec(className || '');
@@ -125,7 +126,7 @@ const markdownComponents: Partial<Components> = {
     if (inline) {
       return (
         <code
-          className="px-1.5 py-0.5 rounded text-sm font-mono border mx-0.5"
+          className="px-1 py-0.5 rounded text-[10px] font-mono border mx-0.5"
           style={{
             backgroundColor: 'var(--accent-muted)',
             borderColor: 'var(--accent)',
@@ -153,20 +154,21 @@ const markdownComponents: Partial<Components> = {
     );
   },
   
-  // Pre/code blocks
+  // Pre/code blocks - compact spacing
   pre: ({ children, ...props }) => (
     <div
-      className="my-4 rounded-lg border overflow-hidden"
+      className="my-1.5 rounded border overflow-hidden"
       style={{
         backgroundColor: 'var(--bg-soft)',
         borderColor: 'var(--border)'
       }}
     >
       <pre
-        className="p-4 overflow-x-auto text-sm leading-relaxed m-0"
+        className="p-2 overflow-x-auto text-[10px] leading-tight m-0"
         style={{
           backgroundColor: 'var(--bg-soft)',
-          color: 'var(--fg)'
+          color: 'var(--fg)',
+          fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace'
         }}
         {...props}
       >
@@ -175,10 +177,10 @@ const markdownComponents: Partial<Components> = {
     </div>
   ),
   
-  // Blockquotes
+  // Blockquotes - compact spacing
   blockquote: ({ children, ...props }) => (
     <blockquote 
-      className="border-l-4 pl-4 py-2 my-3 italic"
+      className="border-l-2 pl-2 py-1 my-1.5 italic text-xs"
       style={{ 
         borderColor: 'var(--accent)',
         backgroundColor: 'var(--bg-soft)',
@@ -204,6 +206,27 @@ const markdownComponents: Partial<Components> = {
     </a>
   ),
   
+  // Images - for charts and visualizations
+  img: ({ src, alt, ...props }: any) => (
+    <div className="my-2">
+      <img
+        src={src}
+        alt={alt || 'Chart'}
+        className="max-w-full h-auto rounded border"
+        style={{
+          borderColor: 'var(--border)',
+          backgroundColor: 'var(--bg-soft)'
+        }}
+        onError={(e) => {
+          console.warn('Failed to load image:', src);
+          const target = e.target as HTMLImageElement;
+          target.style.display = 'none';
+        }}
+        {...props}
+      />
+    </div>
+  ),
+  
   // Strong/Bold
   strong: ({ children, ...props }) => (
     <strong 
@@ -226,20 +249,20 @@ const markdownComponents: Partial<Components> = {
     </em>
   ),
   
-  // Horizontal rule
+  // Horizontal rule - compact spacing
   hr: (props) => (
     <hr 
-      className="my-4 border-t"
+      className="my-1.5 border-t"
       style={{ borderColor: 'var(--border)' }}
       {...props}
     />
   ),
   
-  // Tables
+  // Tables - compact spacing with improved styling
   table: ({ children, ...props }) => (
-    <div className="overflow-x-auto my-4">
+    <div className="overflow-x-auto my-1.5 rounded border" style={{ borderColor: 'var(--border)' }}>
       <table 
-        className="min-w-full border"
+        className="min-w-full text-xs border-collapse"
         style={{ 
           borderColor: 'var(--border)',
           color: 'var(--fg)'
@@ -269,8 +292,11 @@ const markdownComponents: Partial<Components> = {
   ),
   tr: ({ children, ...props }) => (
     <tr 
-      className="border-b"
-      style={{ borderColor: 'var(--border)' }}
+      className="border-b last:border-b-0 hover:bg-opacity-50 transition-colors"
+      style={{ 
+        borderColor: 'var(--border)',
+        backgroundColor: 'transparent'
+      }}
       {...props}
     >
       {children}
@@ -278,8 +304,12 @@ const markdownComponents: Partial<Components> = {
   ),
   th: ({ children, ...props }) => (
     <th 
-      className="px-4 py-2 text-left font-semibold"
-      style={{ color: 'var(--fg)' }}
+      className="px-2 py-1 text-left font-semibold text-xs border-r last:border-r-0"
+      style={{ 
+        color: 'var(--fg)',
+        borderColor: 'var(--border)',
+        backgroundColor: 'var(--bg-soft)'
+      }}
       {...props}
     >
       {children}
@@ -287,8 +317,11 @@ const markdownComponents: Partial<Components> = {
   ),
   td: ({ children, ...props }) => (
     <td 
-      className="px-4 py-2"
-      style={{ color: 'var(--fg)' }}
+      className="px-2 py-1 text-xs border-r last:border-r-0"
+      style={{ 
+        color: 'var(--fg)',
+        borderColor: 'var(--border)'
+      }}
       {...props}
     >
       {children}
@@ -398,7 +431,10 @@ export function renderFormattedSegments(segments: FormattedSegment[]): React.Rea
 
   return (
     <div className="markdown-content">
-      <ReactMarkdown components={markdownComponents}>
+      <ReactMarkdown 
+        components={markdownComponents}
+        remarkPlugins={[remarkGfm]}
+      >
         {markdownText}
       </ReactMarkdown>
     </div>
@@ -417,7 +453,10 @@ export function renderMarkdown(text: string): React.ReactNode {
 
   return (
     <div className="markdown-content">
-      <ReactMarkdown components={markdownComponents}>
+      <ReactMarkdown 
+        components={markdownComponents}
+        remarkPlugins={[remarkGfm]}
+      >
         {normalizedText}
       </ReactMarkdown>
     </div>
