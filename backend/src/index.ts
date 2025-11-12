@@ -76,8 +76,14 @@ if (!isPlaygroundMode) {
   
   app.use(cors({
     origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-      if (!origin) return callback(null, true); // allow same-origin/non-browser tools
+      // Allow requests with no origin (like mobile apps, curl, Postman, etc.)
+      if (!origin) return callback(null, true);
       if (allowedOrigins.has(origin)) return callback(null, true);
+      // In development, log but allow (for easier debugging)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`[CORS] Unlisted origin: ${origin} - allowing in dev mode`);
+        return callback(null, true);
+      }
       return callback(new Error(`CORS blocked for origin: ${origin}`));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -89,13 +95,20 @@ if (!isPlaygroundMode) {
   app.options(/.*/, cors());
   app.use(express.json());
   
+  // Add request logging middleware for debugging
+  app.use((req: any, res: any, next: any) => {
+    console.log(`[Express] ${req.method} ${req.path}`);
+    next();
+  });
+  
   // Speech-to-text API routes
   app.use('/api', speechToTextRouter);
   
   // Health check handler (reused for both endpoints)
-  const healthCheckHandler = async (_req: any, res: any) => {
+  // Simplified to avoid blocking on MCP imports
+  const healthCheckHandler = (_req: any, res: any) => {
     try {
-      // Basic health check
+      // Basic health check - respond immediately without async operations
       const health: any = { 
         status: 'healthy', 
         service: 'mux-analytics-agent',
@@ -104,33 +117,23 @@ if (!isPlaygroundMode) {
         memory: process.memoryUsage(),
         environment: process.env.NODE_ENV,
         workingDirectory: process.cwd(),
-        mcpStatus: 'unknown'
+        mcpStatus: process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET ? 'configured' : 'not_configured',
+        agents: Object.keys(mastra.agents || {}).length
       };
       
-      // Test MCP connection if credentials are available
-      if (process.env.MUX_TOKEN_ID && process.env.MUX_TOKEN_SECRET) {
-        try {
-          const { muxMcpClient } = await import('./mcp/mux-upload-client.js');
-          const tools = await muxMcpClient.getTools();
-          health.mcpStatus = 'connected';
-          health.mcpTools = Object.keys(tools).length;
-        } catch (mcpError: any) {
-          health.mcpStatus = 'error';
-          health.mcpError = mcpError?.message || String(mcpError);
-        }
-      } else {
-        health.mcpStatus = 'not_configured';
-      }
-      
+      // Send response immediately
       res.json(health);
     } catch (error: any) {
-      res.status(500).json({
-        status: 'error',
-        service: 'mux-analytics-agent',
-        timestamp: new Date().toISOString(),
-        error: error?.message || String(error),
-        environment: process.env.NODE_ENV
-      });
+      // Ensure we always send a response, even on error
+      if (!res.headersSent) {
+        res.status(500).json({
+          status: 'error',
+          service: 'mux-analytics-agent',
+          timestamp: new Date().toISOString(),
+          error: error?.message || String(error),
+          environment: process.env.NODE_ENV
+        });
+      }
     }
   };
   
@@ -572,14 +575,35 @@ if (!isPlaygroundMode) {
     }
   });
   
+  // Add error handling middleware at the end (after all routes)
+  app.use((err: any, req: any, res: any, next: any) => {
+    console.error('[Express] Error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    }
+  });
+  
   // Start the server
   const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3001', 10);
   const HOST = process.env.HOST || '0.0.0.0';
   
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, () => {
     console.log(`Mux Analytics Agent server listening on http://${HOST}:${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`Working directory: ${process.cwd()}`);
     console.log(`Agent: Mux Video Streaming Analytics Engineer`);
+  });
+  
+  // Handle server errors
+  server.on('error', (err: any) => {
+    console.error('[Server] Error:', err);
+  });
+  
+  // Keep process alive
+  process.on('SIGTERM', () => {
+    console.log('[Server] SIGTERM received, shutting down gracefully...');
+    server.close(() => {
+      console.log('[Server] Closed');
+    });
   });
 }

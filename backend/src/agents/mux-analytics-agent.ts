@@ -214,7 +214,7 @@ async function synthesizeWithCartesiaTTS(text: string): Promise<Buffer> {
             return `${monthName} ${numberToOrdinal(dayNum)} ${yearToNaturalSpeech(parseInt(y))}`
         })
         // Handle numbers and metrics more naturally
-        .replace(/(\d+)%/g, '$1 percent')          // "5%" → "5 percent"
+        .replace(/(\d+(?:\.\d+)?)[ ]?%/g, '$1 percent')  // "5%" or "2.5%" or "5 %" → spoken as percent
         .replace(/(\d+)ms\b/g, '$1 milliseconds')  // "100ms" → "100 milliseconds"
         .replace(/(\d+)s\b/g, '$1 seconds')        // "5s" → "5 seconds"
         .replace(/(\d+)MB\b/gi, '$1 megabytes')    // "10MB" → "10 megabytes"
