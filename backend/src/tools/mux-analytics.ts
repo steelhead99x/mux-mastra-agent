@@ -1,5 +1,6 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
+import { basename } from "path";
 
 // Utility function to sanitize API keys from error messages
 function sanitizeApiKey(message: string): string {
@@ -1508,13 +1509,14 @@ export const muxChartGenerationTool = createTool({
             }
             
             const chartUrl = await getChartUrl(chartPath);
+            const fileName = basename(chartPath);
             
             console.log(`[mux-chart-generation] Generated ${chartType} chart: ${chartUrl}`);
             
             return {
                 success: true,
                 chartUrl,
-                chartPath,
+                chartPath: fileName, // Only return filename, not full path
                 chartType,
                 title
             };

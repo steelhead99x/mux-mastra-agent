@@ -189,16 +189,18 @@ export async function generateTemperatureChart(
     await chart.render();
     
     // Save chart as PNG to files directory for serving
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // Use hash-based filename instead of timestamp to avoid exposing paths
+    const dataHash = createHash('md5').update(JSON.stringify(temperatureData)).digest('hex');
     const baseDir = resolve(process.cwd(), 'files/charts');
-    const chartPath = join(baseDir, `temperature-chart-${timestamp}.png`);
+    const fileName = `temperature-chart-${dataHash.slice(0, 12)}.png`;
+    const chartPath = join(baseDir, fileName);
     
     await fs.mkdir(baseDir, { recursive: true });
     
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
     
-    console.debug(`[generateTemperatureChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    console.debug(`[generateTemperatureChart] Chart saved: ${fileName} (${buffer.length} bytes)`);
     
     return chartPath;
 }
@@ -242,11 +244,74 @@ export async function generateTemperatureChartFromForecast(
 }
 
 export async function getChartUrl(chartPath: string): Promise<string> {
-    // Use current server URL in development, production URL in production
-    const baseUrl = process.env.NODE_ENV === 'production' 
-        ? (process.env.STREAMING_PORTFOLIO_BASE_URL || 'https://www.streamingportfolio.com')
-        : `http://localhost:${process.env.PORT || 3001}`;
     const fileName = basename(chartPath);
+    
+    // Priority 1: If STREAMING_PORTFOLIO_BASE_URL is set, use it (production or staging)
+    if (process.env.STREAMING_PORTFOLIO_BASE_URL) {
+        const baseUrl = process.env.STREAMING_PORTFOLIO_BASE_URL.replace(/\/$/, ''); // Remove trailing slash
+        return `${baseUrl}/files/charts/${fileName}`;
+    }
+    
+    // Priority 2: If BASE_URL is set, use it
+    if (process.env.BASE_URL) {
+        const baseUrl = process.env.BASE_URL.replace(/\/$/, ''); // Remove trailing slash
+        return `${baseUrl}/files/charts/${fileName}`;
+    }
+    
+    // Priority 3: Use hostname from VITE_MASTRA_API_HOST with frontend port
+    // Charts are displayed in the frontend, so they should use the frontend's hostname and port
+    if (process.env.VITE_MASTRA_API_HOST) {
+        try {
+            // Parse VITE_MASTRA_API_HOST (format: http://hostname:port or https://hostname:port)
+            const viteHost = process.env.VITE_MASTRA_API_HOST.trim();
+            const urlMatch = viteHost.match(/^(https?):\/\/([^:/]+)(?::(\d+))?/);
+            
+            if (urlMatch) {
+                const [, protocol, hostname] = urlMatch;
+                // Use frontend port instead of backend port
+                const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+                
+                // Handle standard ports (don't include port in URL for standard HTTP/HTTPS ports)
+                const portSuffix = (protocol === 'https' && frontendPort === 443) || (protocol === 'http' && frontendPort === 80)
+                    ? ''
+                    : `:${frontendPort}`;
+                
+                const baseUrl = `${protocol}://${hostname}${portSuffix}`;
+                return `${baseUrl}/files/charts/${fileName}`;
+            }
+        } catch (error) {
+            console.warn('[getChartUrl] Failed to parse VITE_MASTRA_API_HOST, falling back to default:', error);
+        }
+    }
+    
+    // Priority 4: Construct URL from HOST and FRONTEND_PORT environment variables
+    const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+    let host = process.env.HOST || '0.0.0.0';
+    
+    // If HOST is 0.0.0.0, determine appropriate hostname for URL
+    // 0.0.0.0 is for binding to all interfaces, not for URLs
+    if (host === '0.0.0.0') {
+        if (process.env.NODE_ENV === 'production') {
+            // In production, try HOSTNAME (common in Docker/containers) or fallback
+            host = process.env.HOSTNAME || process.env.DOMAIN || 'localhost';
+        } else {
+            // In development, use localhost
+            host = 'localhost';
+        }
+    }
+    
+    // Determine protocol based on environment
+    // Use HTTPS in production unless explicitly overridden, HTTP in development
+    const protocol = process.env.NODE_ENV === 'production' 
+        ? (process.env.PROTOCOL || 'https')
+        : (process.env.PROTOCOL || 'http');
+    
+    // Handle standard ports (don't include port in URL for standard HTTP/HTTPS ports)
+    const portSuffix = (protocol === 'https' && frontendPort === 443) || (protocol === 'http' && frontendPort === 80)
+        ? ''
+        : `:${frontendPort}`;
+    
+    const baseUrl = `${protocol}://${host}${portSuffix}`;
     return `${baseUrl}/files/charts/${fileName}`;
 }
 
@@ -381,8 +446,9 @@ export async function generateMuxLineChart(
     
     await chart.render();
     
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const chartPath = join(BASE_DIR, `mux-line-chart-${timestamp}.png`);
+    // Use hash-based filename instead of timestamp to avoid exposing paths
+    const fileName = `mux-line-chart-${cacheKey.slice(0, 12)}.png`;
+    const chartPath = join(BASE_DIR, fileName);
     
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
@@ -398,7 +464,7 @@ export async function generateMuxLineChart(
         entries.slice(0, 10).forEach(([key]) => chartCache.delete(key));
     }
     
-    console.log(`[generateMuxLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    console.log(`[generateMuxLineChart] Chart saved: ${fileName} (${buffer.length} bytes)`);
     return chartPath;
 }
 
@@ -505,8 +571,9 @@ export async function generateMuxBarChart(
     
     await chart.render();
     
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const chartPath = join(BASE_DIR, `mux-bar-chart-${timestamp}.png`);
+    // Use hash-based filename instead of timestamp to avoid exposing paths
+    const fileName = `mux-bar-chart-${cacheKey.slice(0, 12)}.png`;
+    const chartPath = join(BASE_DIR, fileName);
     
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
@@ -515,7 +582,7 @@ export async function generateMuxBarChart(
     const chartUrl = await getChartUrl(chartPath);
     chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
-    console.log(`[generateMuxBarChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    console.log(`[generateMuxBarChart] Chart saved: ${fileName} (${buffer.length} bytes)`);
     return chartPath;
 }
 
@@ -591,8 +658,9 @@ export async function generateMuxPieChart(
     
     await chart.render();
     
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const chartPath = join(BASE_DIR, `mux-pie-chart-${timestamp}.png`);
+    // Use hash-based filename instead of timestamp to avoid exposing paths
+    const fileName = `mux-pie-chart-${cacheKey.slice(0, 12)}.png`;
+    const chartPath = join(BASE_DIR, fileName);
     
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
@@ -601,7 +669,7 @@ export async function generateMuxPieChart(
     const chartUrl = await getChartUrl(chartPath);
     chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
-    console.log(`[generateMuxPieChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    console.log(`[generateMuxPieChart] Chart saved: ${fileName} (${buffer.length} bytes)`);
     return chartPath;
 }
 
@@ -736,8 +804,9 @@ export async function generateMuxMultiLineChart(
     
     await chart.render();
     
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const chartPath = join(BASE_DIR, `mux-multiline-chart-${timestamp}.png`);
+    // Use hash-based filename instead of timestamp to avoid exposing paths
+    const fileName = `mux-multiline-chart-${cacheKey.slice(0, 12)}.png`;
+    const chartPath = join(BASE_DIR, fileName);
     
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
@@ -746,6 +815,6 @@ export async function generateMuxMultiLineChart(
     const chartUrl = await getChartUrl(chartPath);
     chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
-    console.log(`[generateMuxMultiLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
+    console.log(`[generateMuxMultiLineChart] Chart saved: ${fileName} (${buffer.length} bytes)`);
     return chartPath;
 }
