@@ -672,15 +672,6 @@ export const muxAnalyticsTool = createTool({
                     
                     for (const metricId of metricsToTry) {
                         try {
-                            const params = {
-                                endpoint_name: 'get_overall_values_data_metrics',
-                                args: {
-                                    METRIC_ID: metricId,
-                                    timeframe: formatTimeframeForMuxApi(start, end),
-                                    ...(filters && filters.length > 0 && { filters })
-                                }
-                            };
-                            
                             metricsData = await safeInvokeApiEndpoint(
                                 tools['invoke_api_endpoint'],
                                 'get_overall_values_data_metrics',

@@ -238,7 +238,7 @@ if (!isPlaygroundMode) {
       
       // Try to get stream before setting response headers
       // Mastra's agent.stream() handles tool calls internally
-      let stream;
+      let stream: any;
       try {
         console.log('[stream] Calling agent.stream with', messages.length, 'messages');
         console.log('[stream] Last user message:', messages[messages.length - 1]?.content?.substring(0, 100));
@@ -730,7 +730,7 @@ if (!isPlaygroundMode) {
       }
       
       // Try to get stream before setting response headers
-      let stream;
+      let stream: any;
       try {
         console.log('[streamVNext] Calling agent.stream with', messages.length, 'messages');
         stream = await agent.stream(messages);
@@ -867,7 +867,7 @@ if (!isPlaygroundMode) {
         return res.status(400).json({ error: 'Messages array is required' });
       }
       
-      let stream;
+      let stream: any;
       try {
         stream = await agent.stream(messages);
       } catch (agentError) {
