@@ -44,6 +44,37 @@ function formatTimeframeForMuxApi(start: number, end: number): string[] {
 }
 
 /**
+ * Safely call MCP invoke_api_endpoint with error handling for schema validation issues
+ * Handles the "union is not a function" error that can occur in GCP/deployed environments
+ */
+async function safeInvokeApiEndpoint(
+    tool: any,
+    endpointName: string,
+    args: any,
+    context: string = 'unknown'
+): Promise<any> {
+    try {
+        return await tool.execute({
+            context: {
+                endpoint_name: endpointName,
+                args: args
+            }
+        });
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        // Check for schema validation errors that occur in deployed environments
+        if (errorMsg.includes('union is not a function') || 
+            errorMsg.includes('Invalid arguments') ||
+            errorMsg.includes('evaluatedProperties')) {
+            const sanitizedError = sanitizeApiKey(errorMsg);
+            console.warn(`[${context}] Schema validation error for endpoint ${endpointName}, this may be an MCP SDK issue:`, sanitizedError);
+            throw new Error(`Schema validation failed for endpoint ${endpointName}. This may be due to an MCP SDK version mismatch in the deployed environment.`);
+        }
+        throw error;
+    }
+}
+
+/**
  * Parse relative time expressions like "last 7 days", "last 24 hours", etc.
  * Returns [startTime, endTime] as Unix timestamps
  */
@@ -292,16 +323,16 @@ export const muxStreamingPerformanceTool = createTool({
                             }
                         });
                     } else if (tools['invoke_api_endpoint']) {
-                        metricData = await tools['invoke_api_endpoint'].execute({
-                            context: {
-                                endpoint_name: 'get_overall_values_data_metrics',
-                                args: {
-                                    METRIC_ID: metricId,
-                                    timeframe: formatTimeframeForMuxApi(start, end),
-                                    ...(filters && filters.length > 0 && { filters })
-                                }
-                            }
-                        });
+                        metricData = await safeInvokeApiEndpoint(
+                            tools['invoke_api_endpoint'],
+                            'get_overall_values_data_metrics',
+                            {
+                                METRIC_ID: metricId,
+                                timeframe: formatTimeframeForMuxApi(start, end),
+                                ...(filters && filters.length > 0 && { filters })
+                            },
+                            `streaming-performance-${metricId}`
+                        );
                     }
                     
                     if (metricData && metricData.data) {
@@ -490,27 +521,27 @@ export const muxEngagementMetricsTool = createTool({
                             // Fallback to invoke_api_endpoint if get_overall_values fails
                             console.warn(`[engagement-metrics] get_overall_values failed for ${metricId}, trying invoke_api_endpoint:`, error);
                             if (tools['invoke_api_endpoint']) {
-                                metricData = await tools['invoke_api_endpoint'].execute({
-                                    context: {
-                                        endpoint_name: 'get_overall_values_data_metrics',
-                                        args: {
-                                            METRIC_ID: metricId,
-                                            timeframe: formatTimeframeForMuxApi(start, end)
-                                        }
-                                    }
-                                });
+                                metricData = await safeInvokeApiEndpoint(
+                                    tools['invoke_api_endpoint'],
+                                    'get_overall_values_data_metrics',
+                                    {
+                                        METRIC_ID: metricId,
+                                        timeframe: formatTimeframeForMuxApi(start, end)
+                                    },
+                                    `engagement-metrics-${metricId}`
+                                );
                             }
                         }
                     } else if (tools['invoke_api_endpoint']) {
-                        metricData = await tools['invoke_api_endpoint'].execute({
-                            context: {
-                                endpoint_name: 'get_overall_values_data_metrics',
-                                args: {
-                                    METRIC_ID: metricId,
-                                    timeframe: formatTimeframeForMuxApi(start, end)
-                                }
-                            }
-                        });
+                        metricData = await safeInvokeApiEndpoint(
+                            tools['invoke_api_endpoint'],
+                            'get_overall_values_data_metrics',
+                            {
+                                METRIC_ID: metricId,
+                                timeframe: formatTimeframeForMuxApi(start, end)
+                            },
+                            `engagement-metrics-${metricId}`
+                        );
                     }
                     
                     if (metricData && metricData.data) {
@@ -649,7 +680,16 @@ export const muxAnalyticsTool = createTool({
                                 }
                             };
                             
-                            metricsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                            metricsData = await safeInvokeApiEndpoint(
+                                tools['invoke_api_endpoint'],
+                                'get_overall_values_data_metrics',
+                                {
+                                    METRIC_ID: metricId,
+                                    timeframe: formatTimeframeForMuxApi(start, end),
+                                    ...(filters && filters.length > 0 && { filters })
+                                },
+                                `mux-analytics-${metricId}`
+                            );
                             console.log(`[mux-analytics] Got data via invoke_api_endpoint (${metricId}):`, metricsData);
                             break; // Success, stop trying other metrics
                         } catch (metricError) {
@@ -849,26 +889,34 @@ export const muxVideoViewsTool = createTool({
             // Approach 2: Try invoke_api_endpoint for video views
             if (!viewsData && tools['invoke_api_endpoint']) {
                 try {
+                    // Only use list_data_video_views - retrieve_data_video_views requires VIDEO_VIEW_ID
                     const endpointsToTry = [
-                        'list_data_video_views',
-                        'retrieve_data_video_views'
+                        'list_data_video_views'
                     ];
                     
                     for (const endpoint of endpointsToTry) {
                         try {
-                            const params = {
-                                endpoint_name: endpoint,
-                                args: {
+                            viewsData = await safeInvokeApiEndpoint(
+                                tools['invoke_api_endpoint'],
+                                endpoint,
+                                {
                                     timeframe: formatTimeframeForMuxApi(start, end),
                                     limit: limit || 25,
                                     ...(filters && filters.length > 0 && { filters })
-                                }
-                            };
-                            
-                            viewsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                                },
+                                `mux-video-views-${endpoint}`
+                            );
                             console.log(`[mux-video-views] Got data via invoke_api_endpoint (${endpoint}):`, viewsData);
                             break; // Success, stop trying other endpoints
                         } catch (endpointError) {
+                            // Check if it's a schema validation error (union is not a function)
+                            const errorMsg = endpointError instanceof Error ? endpointError.message : String(endpointError);
+                            if (errorMsg.includes('union is not a function') || 
+                                errorMsg.includes('Invalid arguments') ||
+                                errorMsg.includes('Schema validation failed')) {
+                                console.warn(`[mux-video-views] Endpoint ${endpoint} schema mismatch, skipping:`, errorMsg);
+                                continue; // Skip this endpoint and try next
+                            }
                             console.warn(`[mux-video-views] Endpoint ${endpoint} failed:`, endpointError);
                         }
                     }
@@ -994,18 +1042,23 @@ export const muxErrorsTool = createTool({
                     
                     for (const endpoint of endpointsToTry) {
                         try {
-                            const params = {
-                                endpoint_name: endpoint,
-                                args: {
+                            errorsData = await safeInvokeApiEndpoint(
+                                tools['invoke_api_endpoint'],
+                                endpoint,
+                                {
                                     timeframe: formatTimeframeForMuxApi(start, end),
                                     ...(filters && filters.length > 0 && { filters })
-                                }
-                            };
-                            
-                            errorsData = await tools['invoke_api_endpoint'].execute({ context: params });
+                                },
+                                `mux-errors-${endpoint}`
+                            );
                             console.log(`[mux-errors] Got data via invoke_api_endpoint (${endpoint}):`, errorsData);
                             break; // Success, stop trying other endpoints
                         } catch (endpointError) {
+                            const errorMsg = endpointError instanceof Error ? endpointError.message : String(endpointError);
+                            if (errorMsg.includes('Schema validation failed')) {
+                                console.warn(`[mux-errors] Endpoint ${endpoint} schema mismatch, skipping:`, errorMsg);
+                                continue; // Skip this endpoint and try next
+                            }
                             console.warn(`[mux-errors] Endpoint ${endpoint} failed:`, endpointError);
                         }
                     }

@@ -202,12 +202,25 @@ export class MuxDataMcpClient {
                                 }
                             }
                             
-                            return await tools['invoke_api_endpoint'].execute({
-                                context: {
-                                    endpoint_name: endpoint,
-                                    args: processedContext,
-                                },
-                            });
+                            try {
+                                return await tools['invoke_api_endpoint'].execute({
+                                    context: {
+                                        endpoint_name: endpoint,
+                                        args: processedContext,
+                                    },
+                                });
+                            } catch (error) {
+                                const errorMsg = error instanceof Error ? error.message : String(error);
+                                // Check for schema validation errors that occur in deployed environments
+                                if (errorMsg.includes('union is not a function') || 
+                                    errorMsg.includes('Invalid arguments') ||
+                                    errorMsg.includes('evaluatedProperties')) {
+                                    Logger.warn(`Schema validation error for endpoint ${endpoint}, this may be an MCP SDK issue in deployed environment`);
+                                    // Re-throw with a clearer message
+                                    throw new Error(`Schema validation failed for endpoint ${endpoint}. This may be due to an MCP SDK version mismatch in the deployed environment. Original error: ${errorMsg}`);
+                                }
+                                throw error;
+                            }
                         },
                     });
                 };
