@@ -86,6 +86,64 @@ Once started, you can access:
 - **Main application**: http://localhost:3000
 - **Backend services**: http://localhost:3001
 
+## 🐳 Docker Compose Setup
+
+You can also run the application using Docker Compose for a containerized setup:
+
+### Prerequisites
+- Docker and Docker Compose installed on your system
+- A `.env` file configured (see Step 2 above)
+
+### Quick Start with Docker Compose
+
+1. **Ensure your `.env` file is configured** with all required API keys and settings
+
+2. **Build and start the containers**:
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Or run in detached mode** (background):
+   ```bash
+   docker-compose up -d --build
+   ```
+
+4. **Access the application**:
+   - **Frontend (HTTPS)**: https://localhost:3003
+   - **HTTP redirect**: http://localhost:80 (redirects to HTTPS)
+   - **Backend API**: https://localhost:3003/api
+
+   **Note**: You may see a browser security warning about the self-signed SSL certificate. This is normal for local development. Click "Advanced" and "Proceed to localhost" to continue.
+
+### Docker Compose Commands
+
+- **Start services**: `docker-compose up`
+- **Start in background**: `docker-compose up -d`
+- **Stop services**: `docker-compose down`
+- **View logs**: `docker-compose logs -f`
+- **Rebuild containers**: `docker-compose up --build`
+- **Stop and remove volumes**: `docker-compose down -v` (⚠️ This will delete database files)
+
+### Data Persistence
+
+The following data is persisted in your local filesystem:
+- **Database files**: `./backend/mux-analytics-memory.db*` and `./backend/mux-analytics-vector.db*`
+- **Uploaded files**: `./backend/files/`
+- **Charts and images**: `./backend/files/charts/` and `./backend/files/images/`
+
+### Troubleshooting Docker
+
+**Port conflicts**: If ports 80 or 3003 are already in use, edit `docker-compose.yml` to change the port mappings:
+```yaml
+ports:
+  - "8080:80"      # Change 80 to 8080
+  - "3443:3003"    # Change 3003 to 3443
+```
+
+**Container won't start**: Check logs with `docker-compose logs mux-mastra-agent`
+
+**SSL certificate issues**: The container automatically generates a self-signed certificate on first run. If you need to regenerate it, delete the container and volumes and restart.
+
 ## How to Use
 
 ### Talking to the Video Analytics Assistant

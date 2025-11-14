@@ -134,8 +134,11 @@ COPY --chown=weatheruser:nodejs backend/package*.json ./backend/
 COPY --chown=weatheruser:nodejs backend/start.sh ./backend/start.sh
 RUN chmod +x /app/backend/start.sh
 
+# Support build arg to choose nginx config (default to nginx.conf for production)
+ARG NGINX_CONFIG=nginx.conf
+
 # Copy nginx configuration and scripts
-COPY --chown=root:root nginx.conf /etc/nginx/nginx.conf
+COPY --chown=root:root ${NGINX_CONFIG} /etc/nginx/nginx.conf
 COPY --chown=root:root scripts/generate-ssl-cert.sh /app/scripts/generate-ssl-cert.sh
 COPY --chown=root:root scripts/start-with-nginx.sh /app/scripts/start-with-nginx.sh
 RUN chmod +x /app/scripts/generate-ssl-cert.sh && \

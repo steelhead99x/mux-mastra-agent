@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  mux-mastra-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NGINX_CONFIG: nginx.docker.conf
+    container_name: mux-mastra-agent
+    ports:
+      - "80:80"      # HTTP (redirects to HTTPS)
+      - "3003:3003"  # HTTPS (main service)
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - BACKEND_PORT=3001
+      - HOST=0.0.0.0
+    env_file:
+      - .env
+    volumes:
+      # Persist database files
+      - ./backend/mux-analytics-memory.db:/app/backend/mux-analytics-memory.db
+      - ./backend/mux-analytics-memory.db-shm:/app/backend/mux-analytics-memory.db-shm
+      - ./backend/mux-analytics-memory.db-wal:/app/backend/mux-analytics-memory.db-wal
+      - ./backend/mux-analytics-vector.db:/app/backend/mux-analytics-vector.db
+      - ./backend/mux-analytics-vector.db-shm:/app/backend/mux-analytics-vector.db-shm
+      - ./backend/mux-analytics-vector.db-wal:/app/backend/mux-analytics-vector.db-wal
+      # Persist files directory (charts, uploads, images)
+      - ./backend/files:/app/backend/files
+      # Persist public files
+      - ./backend/src/public:/app/backend/src/public
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'node.*dist/index.js' > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - mux-mastra-network
+
+networks:
+  mux-mastra-network:
+    driver: bridge
+
