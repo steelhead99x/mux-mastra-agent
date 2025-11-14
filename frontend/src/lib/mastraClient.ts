@@ -7,11 +7,11 @@ declare module '@mastra/client-js' {
   }
 }
 
-function sanitizeHost(raw: string | undefined): string {
+function sanitizeHost(raw: string | undefined): { hostname: string; protocol?: string } {
   try {
     if (!raw) {
       // In production, use the same domain (no subdomain needed)
-      return window.location.hostname || 'localhost:3001'
+      return { hostname: window.location.hostname || 'localhost:3001' }
     }
     let v = String(raw).trim()
 
@@ -20,8 +20,13 @@ function sanitizeHost(raw: string | undefined): string {
       v = v.slice(1, -1)
     }
 
-    // Remove protocol
-    v = v.replace(/^https?:\/\//i, '')
+    // Extract protocol if present
+    let protocol: string | undefined
+    const protocolMatch = v.match(/^(https?):\/\//i)
+    if (protocolMatch) {
+      protocol = protocolMatch[1].toLowerCase()
+      v = v.replace(/^https?:\/\//i, '')
+    }
 
     // Remove /api if it exists (Mastra client will add it back)
     v = v.replace(/\/api\/?$/, '')
@@ -32,19 +37,28 @@ function sanitizeHost(raw: string | undefined): string {
     // Validate hostname format (basic security check) - allow colons for port numbers
     if (v && !/^[a-zA-Z0-9.-]+(:[0-9]+)?$/.test(v)) {
       console.warn('[Mastra] Invalid hostname format detected, using current hostname')
-      return window.location.hostname || 'localhost:3001'
+      return { hostname: window.location.hostname || 'localhost:3001' }
     }
 
-    return v || window.location.hostname || 'localhost:3001'
+    return { hostname: v || window.location.hostname || 'localhost:3001', protocol }
   } catch {
-    return window.location.hostname || 'localhost:3001'
+    return { hostname: window.location.hostname || 'localhost:3001' }
   }
 }
 
-function buildBaseUrl(hostname: string): string {
-  // Check if it's a local address (with or without port)
-  const isLocal = /^(localhost|127\.0\.0\.1)(:[0-9]+)?/.test(hostname)
-  let url = `${isLocal ? 'http' : 'https'}://${hostname}`
+function buildBaseUrl(hostname: string, protocol?: string): string {
+  // Determine protocol: use provided protocol, or check if local, or default to https
+  let urlProtocol: string
+  if (protocol) {
+    // Use the protocol from the original URL
+    urlProtocol = protocol
+  } else {
+    // Check if it's a local address (with or without port)
+    const isLocal = /^(localhost|127\.0\.0\.1|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(hostname)
+    urlProtocol = isLocal ? 'http' : 'https'
+  }
+  
+  let url = `${urlProtocol}://${hostname}`
   
   // Check if the hostname already includes a path
   const hasPath = hostname.includes('/')
@@ -73,8 +87,8 @@ let finalBaseUrl: string
 
 if (rawHost) {
   // Use explicitly configured host
-  const host = sanitizeHost(rawHost)
-  finalBaseUrl = buildBaseUrl(host)
+  const { hostname, protocol } = sanitizeHost(rawHost)
+  finalBaseUrl = buildBaseUrl(hostname, protocol)
   console.log('[Mastra] Using configured host:', rawHost, '→', finalBaseUrl)
 } else if (isProduction) {
   // In production without explicit config, use the same origin as the frontend
