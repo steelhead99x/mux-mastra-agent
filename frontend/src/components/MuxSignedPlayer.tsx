@@ -238,18 +238,28 @@ export default function MuxSignedPlayer({
           return
         }
         
-        const res = await fetch(keyServerUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        })
+        let res: Response
+        try {
+          res = await fetch(keyServerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          })
+        } catch (fetchError: any) {
+          // Handle abort errors gracefully (common in React StrictMode)
+          if (fetchError.name === 'AbortError' || fetchError.message?.includes('aborted')) {
+            console.log('[MuxSignedPlayer] Request aborted (likely due to component unmount)')
+            return
+          }
+          throw fetchError
+        }
         
         console.log('[MuxSignedPlayer] Response status:', res.status)
         console.log('[MuxSignedPlayer] Response headers:', Object.fromEntries(res.headers.entries()))
         
         if (!res.ok) {
-          const errorText = await res.text()
+          const errorText = await res.text().catch(() => res.statusText)
           console.error('[MuxSignedPlayer] Keyserver error response:', errorText)
           const message = `Keyserver error ${res.status}: ${errorText}`
           if (!cancelled) setState({ status: 'error', message })
@@ -309,12 +319,19 @@ export default function MuxSignedPlayer({
           completionRate: 0
         })
       } catch (e: any) {
+        // Silently handle abort errors (common in React StrictMode during development)
+        if (e?.name === 'AbortError' || e?.message?.includes('aborted')) {
+          if (!cancelled) {
+            console.log('[MuxSignedPlayer] Request aborted (component unmounting)')
+          }
+          return
+        }
+        
+        // Log other errors
         console.error('[MuxSignedPlayer] Error during token fetch:', e)
         console.error('[MuxSignedPlayer] Error stack:', e?.stack)
         if (cancelled) return
-        if (e?.name !== 'AbortError') {
-          setState({ status: 'error', message: e?.message || 'Failed to fetch playback token' })
-        }
+        setState({ status: 'error', message: e?.message || 'Failed to fetch playback token' })
       }
     }
     run()

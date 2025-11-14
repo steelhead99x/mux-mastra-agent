@@ -2,9 +2,39 @@ import { Chart, registerables } from 'chart.js';
 import { createCanvas } from 'canvas';
 import { promises as fs } from 'fs';
 import { resolve, join, basename } from 'path';
+import { createHash } from 'crypto';
 
-// Register all Chart.js components
+// Register all Chart.js components (only once)
 Chart.register(...registerables);
+
+// Chart cache to avoid regenerating identical charts
+const chartCache = new Map<string, { path: string; url: string; timestamp: number }>();
+const CACHE_TTL = 3600000; // 1 hour cache TTL
+const BASE_DIR = resolve(process.cwd(), 'files/charts');
+
+// Ensure charts directory exists (do this once at startup)
+let dirInitialized = false;
+async function ensureChartsDir() {
+    if (!dirInitialized) {
+        await fs.mkdir(BASE_DIR, { recursive: true });
+        dirInitialized = true;
+    }
+}
+
+// Initialize directory on module load
+ensureChartsDir().catch(console.error);
+
+/**
+ * Generate a hash for chart data to enable caching
+ */
+function generateChartHash(
+    chartType: string,
+    data: any,
+    config: any
+): string {
+    const dataStr = JSON.stringify({ chartType, data, config });
+    return createHash('md5').update(dataStr).digest('hex');
+}
 
 interface TemperatureDataPoint {
     name: string;
@@ -232,8 +262,8 @@ interface MuxChartConfig extends ChartConfig {
 
 const MUX_DEFAULT_CONFIG: Required<MuxChartConfig> = {
     ...DEFAULT_CONFIG,
-    width: 1000,
-    height: 500,
+    width: 900, // Reduced from 1000 for faster rendering
+    height: 450, // Reduced from 500 for faster rendering
     backgroundColor: '#0f172a', // Dark slate background
     textColor: '#f1f5f9', // Light text
     gridColor: '#334155', // Medium gray grid
@@ -245,7 +275,7 @@ const MUX_DEFAULT_CONFIG: Required<MuxChartConfig> = {
 };
 
 /**
- * Generate a line chart for Mux metrics over time
+ * Generate a line chart for Mux metrics over time (with caching)
  */
 export async function generateMuxLineChart(
     data: Array<{ label: string; value: number }>,
@@ -253,11 +283,27 @@ export async function generateMuxLineChart(
 ): Promise<string> {
     const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
     
+    // Check cache first
+    const cacheKey = generateChartHash('line', data, finalConfig);
+    const cached = chartCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log(`[generateMuxLineChart] Using cached chart: ${cached.path}`);
+        return cached.path;
+    }
+    
+    await ensureChartsDir();
+    
     const canvas = createCanvas(finalConfig.width, finalConfig.height);
     const ctx = canvas.getContext('2d');
     
-    const labels = data.map(d => d.label);
-    const values = data.map(d => d.value);
+    // Optimize: limit data points for better performance (sample if too many)
+    const maxDataPoints = 100;
+    const labels = data.length > maxDataPoints 
+        ? data.map((_, i) => i % Math.ceil(data.length / maxDataPoints) === 0 ? data[i].label : '').filter(Boolean)
+        : data.map(d => d.label);
+    const values = data.length > maxDataPoints
+        ? data.filter((_, i) => i % Math.ceil(data.length / maxDataPoints) === 0).map(d => d.value)
+        : data.map(d => d.value);
     
     const chart = new Chart(ctx as any, {
         type: 'line',
@@ -270,9 +316,9 @@ export async function generateMuxLineChart(
                 backgroundColor: finalConfig.lineColor + '30',
                 pointBackgroundColor: finalConfig.pointColor,
                 pointBorderColor: finalConfig.pointColor,
-                pointRadius: 5,
+                pointRadius: data.length > 50 ? 3 : 5, // Smaller points for dense data
                 pointHoverRadius: 7,
-                borderWidth: 3,
+                borderWidth: 2, // Reduced from 3
                 fill: true,
                 tension: 0.4
             }]
@@ -280,19 +326,20 @@ export async function generateMuxLineChart(
         options: {
             responsive: false,
             maintainAspectRatio: false,
+            animation: false, // Disable animation for faster rendering
             plugins: {
                 title: {
                     display: true,
                     text: finalConfig.title || 'Mux Analytics Chart',
-                    font: { size: 22, weight: 'bold' },
+                    font: { size: 20, weight: 'bold' }, // Slightly smaller
                     color: finalConfig.textColor,
-                    padding: 20
+                    padding: 15
                 },
                 legend: {
                     display: true,
                     labels: {
                         color: finalConfig.textColor,
-                        font: { size: 14 }
+                        font: { size: 12 } // Smaller font
                     }
                 }
             },
@@ -303,13 +350,14 @@ export async function generateMuxLineChart(
                         display: true,
                         text: finalConfig.xAxisLabel || 'Time',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 },
+                        font: { size: 10 },
                         maxRotation: 45,
-                        minRotation: 0
+                        minRotation: 0,
+                        maxTicksLimit: 20 // Limit ticks for performance
                     },
                     grid: { color: finalConfig.gridColor }
                 },
@@ -319,11 +367,11 @@ export async function generateMuxLineChart(
                         display: true,
                         text: finalConfig.yAxisLabel || 'Value',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 }
+                        font: { size: 10 }
                     },
                     grid: { color: finalConfig.gridColor }
                 }
@@ -334,19 +382,28 @@ export async function generateMuxLineChart(
     await chart.render();
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const baseDir = resolve(process.cwd(), 'files/charts');
-    const chartPath = join(baseDir, `mux-line-chart-${timestamp}.png`);
+    const chartPath = join(BASE_DIR, `mux-line-chart-${timestamp}.png`);
     
-    await fs.mkdir(baseDir, { recursive: true });
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
+    
+    // Cache the result
+    const chartUrl = await getChartUrl(chartPath);
+    chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
+    
+    // Clean old cache entries (keep cache size manageable)
+    if (chartCache.size > 50) {
+        const entries = Array.from(chartCache.entries());
+        entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+        entries.slice(0, 10).forEach(([key]) => chartCache.delete(key));
+    }
     
     console.log(`[generateMuxLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
     return chartPath;
 }
 
 /**
- * Generate a bar chart for Mux breakdown data (geographic, platform, etc.)
+ * Generate a bar chart for Mux breakdown data (geographic, platform, etc.) (with caching)
  */
 export async function generateMuxBarChart(
     data: Array<{ label: string; value: number }>,
@@ -354,11 +411,24 @@ export async function generateMuxBarChart(
 ): Promise<string> {
     const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
     
+    // Check cache first
+    const cacheKey = generateChartHash('bar', data, finalConfig);
+    const cached = chartCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log(`[generateMuxBarChart] Using cached chart: ${cached.path}`);
+        return cached.path;
+    }
+    
+    await ensureChartsDir();
+    
     const canvas = createCanvas(finalConfig.width, finalConfig.height);
     const ctx = canvas.getContext('2d');
     
-    const labels = data.map(d => d.label);
-    const values = data.map(d => d.value);
+    // Limit to top N items for better performance
+    const maxBars = 20;
+    const sortedData = [...data].sort((a, b) => b.value - a.value).slice(0, maxBars);
+    const labels = sortedData.map(d => d.label);
+    const values = sortedData.map(d => d.value);
     
     // Use a color palette for bars
     const colors = [
@@ -381,19 +451,20 @@ export async function generateMuxBarChart(
         options: {
             responsive: false,
             maintainAspectRatio: false,
+            animation: false, // Disable animation for faster rendering
             plugins: {
                 title: {
                     display: true,
                     text: finalConfig.title || 'Mux Analytics Chart',
-                    font: { size: 22, weight: 'bold' },
+                    font: { size: 20, weight: 'bold' },
                     color: finalConfig.textColor,
-                    padding: 20
+                    padding: 15
                 },
                 legend: {
                     display: true,
                     labels: {
                         color: finalConfig.textColor,
-                        font: { size: 14 }
+                        font: { size: 12 }
                     }
                 }
             },
@@ -404,11 +475,11 @@ export async function generateMuxBarChart(
                         display: true,
                         text: finalConfig.xAxisLabel || 'Category',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 },
+                        font: { size: 10 },
                         maxRotation: 45,
                         minRotation: 0
                     },
@@ -420,11 +491,11 @@ export async function generateMuxBarChart(
                         display: true,
                         text: finalConfig.yAxisLabel || 'Value',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 }
+                        font: { size: 10 }
                     },
                     grid: { color: finalConfig.gridColor }
                 }
@@ -435,19 +506,21 @@ export async function generateMuxBarChart(
     await chart.render();
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const baseDir = resolve(process.cwd(), 'files/charts');
-    const chartPath = join(baseDir, `mux-bar-chart-${timestamp}.png`);
+    const chartPath = join(BASE_DIR, `mux-bar-chart-${timestamp}.png`);
     
-    await fs.mkdir(baseDir, { recursive: true });
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
+    
+    // Cache the result
+    const chartUrl = await getChartUrl(chartPath);
+    chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
     console.log(`[generateMuxBarChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
     return chartPath;
 }
 
 /**
- * Generate a pie chart for Mux distribution data
+ * Generate a pie chart for Mux distribution data (with caching)
  */
 export async function generateMuxPieChart(
     data: Array<{ label: string; value: number }>,
@@ -455,11 +528,24 @@ export async function generateMuxPieChart(
 ): Promise<string> {
     const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
     
+    // Check cache first
+    const cacheKey = generateChartHash('pie', data, finalConfig);
+    const cached = chartCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log(`[generateMuxPieChart] Using cached chart: ${cached.path}`);
+        return cached.path;
+    }
+    
+    await ensureChartsDir();
+    
     const canvas = createCanvas(finalConfig.width, finalConfig.height);
     const ctx = canvas.getContext('2d');
     
-    const labels = data.map(d => d.label);
-    const values = data.map(d => d.value);
+    // Limit to top N items for better performance
+    const maxSlices = 15;
+    const sortedData = [...data].sort((a, b) => b.value - a.value).slice(0, maxSlices);
+    const labels = sortedData.map(d => d.label);
+    const values = sortedData.map(d => d.value);
     
     const colors = [
         '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -475,27 +561,28 @@ export async function generateMuxPieChart(
                 data: values,
                 backgroundColor: labels.map((_, i) => colors[i % colors.length]),
                 borderColor: finalConfig.backgroundColor,
-                borderWidth: 3
+                borderWidth: 2 // Reduced from 3
             }]
         },
         options: {
             responsive: false,
             maintainAspectRatio: false,
+            animation: false, // Disable animation for faster rendering
             plugins: {
                 title: {
                     display: true,
                     text: finalConfig.title || 'Mux Analytics Chart',
-                    font: { size: 22, weight: 'bold' },
+                    font: { size: 20, weight: 'bold' },
                     color: finalConfig.textColor,
-                    padding: 20
+                    padding: 15
                 },
                 legend: {
                     display: true,
                     position: 'right',
                     labels: {
                         color: finalConfig.textColor,
-                        font: { size: 12 },
-                        padding: 15
+                        font: { size: 11 },
+                        padding: 12
                     }
                 }
             }
@@ -505,19 +592,21 @@ export async function generateMuxPieChart(
     await chart.render();
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const baseDir = resolve(process.cwd(), 'files/charts');
-    const chartPath = join(baseDir, `mux-pie-chart-${timestamp}.png`);
+    const chartPath = join(BASE_DIR, `mux-pie-chart-${timestamp}.png`);
     
-    await fs.mkdir(baseDir, { recursive: true });
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
+    
+    // Cache the result
+    const chartUrl = await getChartUrl(chartPath);
+    chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
     console.log(`[generateMuxPieChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
     return chartPath;
 }
 
 /**
- * Generate a multi-line chart comparing multiple Mux metrics
+ * Generate a multi-line chart comparing multiple Mux metrics (with caching)
  */
 export async function generateMuxMultiLineChart(
     datasets: Array<{ label: string; data: Array<{ label: string; value: number }>; color?: string }>,
@@ -525,12 +614,32 @@ export async function generateMuxMultiLineChart(
 ): Promise<string> {
     const finalConfig = { ...MUX_DEFAULT_CONFIG, ...config };
     
+    // Check cache first
+    const cacheKey = generateChartHash('multiline', datasets, finalConfig);
+    const cached = chartCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+        console.log(`[generateMuxMultiLineChart] Using cached chart: ${cached.path}`);
+        return cached.path;
+    }
+    
+    await ensureChartsDir();
+    
     const canvas = createCanvas(finalConfig.width, finalConfig.height);
     const ctx = canvas.getContext('2d');
     
+    // Limit datasets and data points for performance
+    const maxDatasets = 5;
+    const maxDataPoints = 100;
+    const limitedDatasets = datasets.slice(0, maxDatasets);
+    
     // Get all unique labels from all datasets
     const allLabels = new Set<string>();
-    datasets.forEach(ds => ds.data.forEach(d => allLabels.add(d.label)));
+    limitedDatasets.forEach(ds => {
+        const sampled = ds.data.length > maxDataPoints
+            ? ds.data.filter((_, i) => i % Math.ceil(ds.data.length / maxDataPoints) === 0)
+            : ds.data;
+        sampled.forEach(d => allLabels.add(d.label));
+    });
     const labels = Array.from(allLabels).sort();
     
     // Default colors for datasets
@@ -539,9 +648,12 @@ export async function generateMuxMultiLineChart(
         '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'
     ];
     
-    const chartDatasets = datasets.map((ds, idx) => {
+    const chartDatasets = limitedDatasets.map((ds, idx) => {
+        const sampled = ds.data.length > maxDataPoints
+            ? ds.data.filter((_, i) => i % Math.ceil(ds.data.length / maxDataPoints) === 0)
+            : ds.data;
         const values = labels.map(label => {
-            const dataPoint = ds.data.find(d => d.label === label);
+            const dataPoint = sampled.find(d => d.label === label);
             return dataPoint ? dataPoint.value : null;
         });
         
@@ -552,7 +664,7 @@ export async function generateMuxMultiLineChart(
             backgroundColor: (ds.color || defaultColors[idx % defaultColors.length]) + '30',
             pointBackgroundColor: ds.color || defaultColors[idx % defaultColors.length],
             pointBorderColor: ds.color || defaultColors[idx % defaultColors.length],
-            pointRadius: 4,
+            pointRadius: labels.length > 50 ? 2 : 4,
             pointHoverRadius: 6,
             borderWidth: 2,
             fill: false,
@@ -569,19 +681,20 @@ export async function generateMuxMultiLineChart(
         options: {
             responsive: false,
             maintainAspectRatio: false,
+            animation: false, // Disable animation for faster rendering
             plugins: {
                 title: {
                     display: true,
                     text: finalConfig.title || 'Mux Analytics Comparison',
-                    font: { size: 22, weight: 'bold' },
+                    font: { size: 20, weight: 'bold' },
                     color: finalConfig.textColor,
-                    padding: 20
+                    padding: 15
                 },
                 legend: {
                     display: true,
                     labels: {
                         color: finalConfig.textColor,
-                        font: { size: 14 }
+                        font: { size: 12 }
                     }
                 }
             },
@@ -592,13 +705,14 @@ export async function generateMuxMultiLineChart(
                         display: true,
                         text: finalConfig.xAxisLabel || 'Time',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 },
+                        font: { size: 10 },
                         maxRotation: 45,
-                        minRotation: 0
+                        minRotation: 0,
+                        maxTicksLimit: 20
                     },
                     grid: { color: finalConfig.gridColor }
                 },
@@ -608,11 +722,11 @@ export async function generateMuxMultiLineChart(
                         display: true,
                         text: finalConfig.yAxisLabel || 'Value',
                         color: finalConfig.textColor,
-                        font: { size: 14, weight: 'bold' }
+                        font: { size: 12, weight: 'bold' }
                     },
                     ticks: {
                         color: finalConfig.textColor,
-                        font: { size: 11 }
+                        font: { size: 10 }
                     },
                     grid: { color: finalConfig.gridColor }
                 }
@@ -623,12 +737,14 @@ export async function generateMuxMultiLineChart(
     await chart.render();
     
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const baseDir = resolve(process.cwd(), 'files/charts');
-    const chartPath = join(baseDir, `mux-multiline-chart-${timestamp}.png`);
+    const chartPath = join(BASE_DIR, `mux-multiline-chart-${timestamp}.png`);
     
-    await fs.mkdir(baseDir, { recursive: true });
     const buffer = canvas.toBuffer('image/png');
     await fs.writeFile(chartPath, buffer);
+    
+    // Cache the result
+    const chartUrl = await getChartUrl(chartPath);
+    chartCache.set(cacheKey, { path: chartPath, url: chartUrl, timestamp: Date.now() });
     
     console.log(`[generateMuxMultiLineChart] Chart saved: ${chartPath} (${buffer.length} bytes)`);
     return chartPath;

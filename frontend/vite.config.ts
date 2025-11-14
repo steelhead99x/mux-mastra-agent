@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_MUX_KEY_SERVER_URL': JSON.stringify(env.VITE_MUX_KEY_SERVER_URL),
     },
     server: {
+      host: '0.0.0.0', // Listen on all network interfaces
       port: parseInt(env.FRONTEND_PORT || '3000'),
       strictPort: true, // Fail if port is not available
       proxy: {

@@ -46,56 +46,73 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
   // Effect to handle video loading and updates (handles streaming updates)
   useEffect(() => {
     if (!detectedVideoUrl) return
-    try {
-      const url = new URL(detectedVideoUrl)
-      const assetId = url.searchParams.get('assetId') || url.searchParams.get('assetID') || url.searchParams.get('assetid') || url.searchParams.get('asset_id')
-      const playbackId = url.searchParams.get('playbackId') || url.searchParams.get('playbackID') || url.searchParams.get('playbackid') || url.searchParams.get('playback_id')
-
-      // Preconnect to player and keyserver to speed up inline playback
+    
+    // Debounce URL processing to avoid excessive updates during streaming
+    const timeoutId = setTimeout(() => {
       try {
-        const ensurePreconnect = (href: string) => {
-          if (!href) return
-          const url = new URL(href, window.location.href)
-          const origin = url.origin
-          const has = Array.from(document.querySelectorAll('link[rel="preconnect"]')).some((el: any) => el.href.startsWith(origin))
-          if (!has) {
-            const link = document.createElement('link')
-            link.rel = 'preconnect'
-            link.href = origin
-            link.crossOrigin = 'anonymous'
-            document.head.appendChild(link)
+        const url = new URL(detectedVideoUrl)
+        const assetId = url.searchParams.get('assetId') || url.searchParams.get('assetID') || url.searchParams.get('assetid') || url.searchParams.get('asset_id')
+        const playbackId = url.searchParams.get('playbackId') || url.searchParams.get('playbackID') || url.searchParams.get('playbackid') || url.searchParams.get('playback_id')
+
+        // Preconnect to player and keyserver to speed up inline playback (only once)
+        try {
+          const ensurePreconnect = (href: string) => {
+            if (!href) return
+            const url = new URL(href, window.location.href)
+            const origin = url.origin
+            const has = Array.from(document.querySelectorAll('link[rel="preconnect"]')).some((el: any) => el.href.startsWith(origin))
+            if (!has) {
+              const link = document.createElement('link')
+              link.rel = 'preconnect'
+              link.href = origin
+              link.crossOrigin = 'anonymous'
+              document.head.appendChild(link)
+            }
           }
+          ensurePreconnect('https://stream.mux.com')
+          ensurePreconnect('https://image.mux.com')
+          ensurePreconnect('https://www.streamingportfolio.com')
+        } catch {}
+
+        // Only apply when we have meaningful update:
+        // - playbackId newly available or changed
+        // - assetId becomes valid length (>= 20) or changed
+        const isValidAssetId = assetId && assetId.length >= 20
+        const shouldUpdateByPlayback = !!playbackId && playbackId !== lastAppliedPlaybackId
+        const shouldUpdateByAsset = !!isValidAssetId && assetId !== lastAppliedAssetId
+
+        if (shouldUpdateByPlayback || shouldUpdateByAsset) {
+          console.log('[MessageComponent] Updating video player with:', { assetId, playbackId })
+          setCurrentVideo({
+            assetId: isValidAssetId ? assetId || undefined : undefined,
+            playbackId: playbackId || undefined
+          })
+          if (shouldUpdateByAsset && isValidAssetId) setLastAppliedAssetId(assetId!)
+          if (shouldUpdateByPlayback) setLastAppliedPlaybackId(playbackId!)
         }
-        ensurePreconnect('https://stream.mux.com')
-        ensurePreconnect('https://image.mux.com')
-        ensurePreconnect('https://www.streamingportfolio.com')
-      } catch {}
-
-      // Only apply when we have meaningful update:
-      // - playbackId newly available or changed
-      // - assetId becomes valid length (>= 20) or changed
-      const isValidAssetId = assetId && assetId.length >= 20
-      const shouldUpdateByPlayback = !!playbackId && playbackId !== lastAppliedPlaybackId
-      const shouldUpdateByAsset = !!isValidAssetId && assetId !== lastAppliedAssetId
-
-      if (shouldUpdateByPlayback || shouldUpdateByAsset) {
-        console.log('[MessageComponent] Updating video player with:', { assetId, playbackId })
-        setCurrentVideo({
-          assetId: isValidAssetId ? assetId || undefined : undefined,
-          playbackId: playbackId || undefined
-        })
-        if (shouldUpdateByAsset && isValidAssetId) setLastAppliedAssetId(assetId!)
-        if (shouldUpdateByPlayback) setLastAppliedPlaybackId(playbackId!)
+      } catch (error) {
+        console.error('[MessageComponent] Failed to parse video URL:', error)
       }
-    } catch (error) {
-      console.error('[MessageComponent] Failed to parse video URL:', error)
-    }
+    }, 500) // 500ms debounce to reduce excessive updates during streaming
+    
+    return () => clearTimeout(timeoutId)
   }, [detectedVideoUrl, lastAppliedAssetId, lastAppliedPlaybackId, setCurrentVideo])
   
-  // Function to detect and extract Mux video URLs
-  const detectMuxVideo = (content: string) => {
-    // More comprehensive pattern that handles various URL formats and spacing issues
-    const patterns = [
+  // Function to detect and extract Mux video URLs (memoized to avoid excessive regex)
+  const detectMuxVideo = useMemo(() => {
+    // Cache the last detected URL to avoid re-processing
+    let lastDetectedUrl: string | null = null
+    let lastContentHash: string | null = null
+    
+    return (content: string): string | null => {
+      // Quick check: if content hasn't changed significantly, return cached result
+      const contentHash = content.slice(-200) // Only check last 200 chars for performance
+      if (contentHash === lastContentHash && lastDetectedUrl) {
+        return lastDetectedUrl
+      }
+      
+      // More comprehensive pattern that handles various URL formats and spacing issues
+      const patterns = [
       // Any subdomain (or none) under streamingportfolio.com, player or player.html, with assetId/playbackId
       /https:\/\/(?:[\w.-]+\.)?streamingportfolio\.com\/player(?:\.html)?\?(?:assetId|asset_id|playbackId|playback_id)=([a-zA-Z0-9]+)(?:&[^\s]*)?/g,
       // Standard format with potential spacing issues
@@ -132,18 +149,22 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
       /https:\/\/www\.streamingportfolio\.com\/player\.html\?assetId=([a-zA-Z0-9]+)(?:\s|$)/g
     ];
     
-    for (const pattern of patterns) {
-      const matches = content.match(pattern);
-      if (matches) {
-        // Clean up the URL by removing any extra spaces and normalize
-        const cleanUrl = matches[0].replace(/\s+/g, '').trim();
-        console.log('[detectMuxVideo] Found URL:', cleanUrl);
-        return cleanUrl;
+      for (const pattern of patterns) {
+        const matches = content.match(pattern);
+        if (matches) {
+          // Clean up the URL by removing any extra spaces and normalize
+          const cleanUrl = matches[0].replace(/\s+/g, '').trim();
+          console.log('[detectMuxVideo] Found URL:', cleanUrl);
+          lastDetectedUrl = cleanUrl
+          lastContentHash = contentHash
+          return cleanUrl;
+        }
       }
+      
+      lastContentHash = contentHash
+      return null;
     }
-    
-    return null;
-  }
+  }, [])
 
   // Function to detect and extract image URLs (including chart URLs)
   const detectImageUrl = (content: string) => {
@@ -213,21 +234,21 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
             </div>
           )}
           {/* Show notification that audio is loaded in the main player */}
-          <div className="mt-1.5 p-2 rounded border" style={{ 
-            backgroundColor: 'var(--overlay)', 
+          <div className="mt-3 p-3 rounded-xl border-2 shadow-lg" style={{ 
+            backgroundColor: 'var(--accent-muted)', 
             borderColor: 'var(--accent)',
-            borderWidth: '1.5px'
+            borderWidth: '2px'
           }}>
-            <div className="flex items-start gap-2">
-              <div className="text-base flex-shrink-0">🎧</div>
+            <div className="flex items-start gap-3">
+              <div className="text-2xl flex-shrink-0">🎧</div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium mb-0.5 text-xs" style={{ color: 'var(--fg)' }}>
-                  Audio Report Loaded
+                <div className="font-semibold mb-1 text-sm" style={{ color: 'var(--fg)' }}>
+                  Audio Report Ready
                 </div>
-                <div className="text-[10px] mb-1.5 leading-tight" style={{ color: 'var(--fg-muted)' }}>
-                  Your audio report is now playing in the player on the left. Click play to listen.
+                <div className="text-xs mb-3 leading-relaxed" style={{ color: 'var(--fg-muted)' }}>
+                  Your audio report is now available in the player on the left. Click play to listen to the analytics summary.
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={(e) => {
                       navigator.clipboard.writeText(muxVideoUrl).then(() => {
@@ -235,18 +256,21 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                         const button = e.target as HTMLButtonElement;
                         const originalText = button.textContent;
                         button.textContent = '✓ Copied!';
+                        button.style.backgroundColor = 'var(--ok)';
                         setTimeout(() => {
                           button.textContent = originalText;
+                          button.style.backgroundColor = '';
                         }, 2000);
                       }).catch(err => {
                         console.error('Failed to copy URL:', err);
                       });
                     }}
-                    className="text-[10px] px-2 py-0.5 rounded border transition-colors hover:bg-opacity-80"
+                    className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:scale-105"
                     style={{ 
                       backgroundColor: 'var(--accent)', 
                       borderColor: 'var(--accent)',
-                      color: 'var(--accent-contrast)'
+                      color: 'var(--accent-contrast)',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                   >
                     Copy URL
@@ -255,15 +279,16 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                     href={muxVideoUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-[10px] px-2 py-0.5 rounded border transition-colors hover:bg-opacity-80"
+                    className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all hover:scale-105 inline-block"
                     style={{ 
                       backgroundColor: 'var(--bg)', 
                       borderColor: 'var(--border)',
                       color: 'var(--fg)',
-                      textDecoration: 'none'
+                      textDecoration: 'none',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                     }}
                   >
-                    Open Tab
+                    Open in New Tab
                   </a>
                 </div>
               </div>
@@ -295,35 +320,44 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
               </div>
             </div>
           )}
-          <div className="space-y-2 mt-2">
+          <div className="space-y-3 mt-3">
             {imageUrls.map((imageUrl, idx) => (
-              <div key={idx} className="relative">
-                <img 
-                  src={imageUrl} 
-                  alt={`Chart ${idx + 1}`}
-                  className="max-w-full h-auto rounded-lg border shadow-sm"
+              <div key={idx} className="relative group/chart">
+                <div className="rounded-xl border-2 overflow-hidden shadow-lg hover:shadow-xl transition-shadow"
                   style={{ 
                     borderColor: 'var(--border)',
                     backgroundColor: 'var(--bg-soft)'
-                  }}
-                  onError={(e) => {
-                    console.warn('Failed to load image:', imageUrl);
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                  }}
-                  onLoad={(e) => {
-                    // Add smooth fade-in effect
-                    const target = e.target as HTMLImageElement;
-                    target.style.opacity = '0';
-                    target.style.transition = 'opacity 0.3s ease-in';
-                    setTimeout(() => {
-                      target.style.opacity = '1';
-                    }, 10);
-                  }}
-                />
+                  }}>
+                  <img 
+                    src={imageUrl} 
+                    alt={`Chart ${idx + 1}`}
+                    className="max-w-full h-auto block"
+                    loading="lazy"
+                    decoding="async"
+                    style={{ 
+                      minHeight: '200px',
+                      backgroundColor: 'var(--bg-soft)'
+                    }}
+                    onError={(e) => {
+                      console.warn('Failed to load image:', imageUrl);
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
+                    onLoad={(e) => {
+                      // Add smooth fade-in effect
+                      const target = e.target as HTMLImageElement;
+                      target.style.opacity = '0';
+                      target.style.transition = 'opacity 0.3s ease-in';
+                      requestAnimationFrame(() => {
+                        target.style.opacity = '1';
+                      });
+                    }}
+                  />
+                </div>
                 {imageUrl.includes('chart') && (
-                  <div className="text-[9px] mt-1 text-center" style={{ color: 'var(--fg-muted)' }}>
-                    📊 Analytics Chart
+                  <div className="flex items-center justify-center gap-1.5 mt-2 text-xs font-medium" style={{ color: 'var(--fg-muted)' }}>
+                    <span>📊</span>
+                    <span>Analytics Chart {imageUrls.length > 1 ? `${idx + 1}/${imageUrls.length}` : ''}</span>
                   </div>
                 )}
               </div>
@@ -344,9 +378,13 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
   }
 
   return (
-    <div className="whitespace-pre-wrap text-xs">
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="flex-1 min-w-0">
+    <div className={`whitespace-pre-wrap text-xs group ${message.role === 'user' ? 'ml-auto' : ''}`}>
+      <div className={`flex items-start gap-2 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
+        <div className={`flex-1 min-w-0 rounded-lg p-2.5 ${
+          message.role === 'user' 
+            ? 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800' 
+            : 'bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700'
+        }`}>
           {renderContent(message.content)}
         </div>
         {/* Only show copy button when streaming is complete */}
@@ -358,7 +396,7 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                 const button = e.target as HTMLButtonElement;
                 const originalText = button.textContent;
                 button.textContent = '✓';
-                button.style.color = 'var(--success)';
+                button.style.color = 'var(--ok)';
                 setTimeout(() => {
                   button.textContent = originalText;
                   button.style.color = '';
@@ -367,11 +405,11 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                 console.error('Failed to copy message:', err);
               });
             }}
-            className="text-[10px] px-1.5 py-0.5 rounded border transition-colors hover:bg-opacity-80 opacity-0 group-hover:opacity-100 flex-shrink-0"
+            className="text-[10px] px-2 py-1 rounded-md border transition-all hover:scale-105 opacity-0 group-hover:opacity-100 flex-shrink-0"
             style={{ 
-              backgroundColor: 'var(--accent)', 
-              borderColor: 'var(--accent)',
-              color: 'var(--accent-fg)'
+              backgroundColor: 'var(--bg)', 
+              borderColor: 'var(--border)',
+              color: 'var(--fg-muted)'
             }}
             title="Copy message text"
           >
@@ -379,7 +417,7 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
           </button>
         )}
       </div>
-      <div className="text-[10px] mt-0.5 opacity-60">
+      <div className={`text-[10px] mt-1 opacity-60 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
         {new Date(message.timestamp).toLocaleTimeString()}
       </div>
     </div>
@@ -812,7 +850,7 @@ export default function MuxAnalyticsChat() {
       {/* Messages */}
       <div 
         ref={scrollRef}
-        className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-1.5 p-2 rounded-lg border overflow-y-auto"
+        className="flex-1 min-h-[400px] max-h-[70vh] chat-messages-container space-y-3 p-4 rounded-xl border overflow-y-auto"
         style={{ 
           backgroundColor: 'var(--bg-soft)', 
           borderColor: 'var(--border)'
@@ -826,15 +864,16 @@ export default function MuxAnalyticsChat() {
             <p className="text-xs mb-4" style={{ color: 'var(--fg-muted)' }}>
               Click any option below to get started:
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl mx-auto">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-2xl mx-auto">
               <button
                 onClick={() => handleOptionClick('Analyze video streaming performance metrics including startup time, rebuffering, and segment delivery for the last 7 days. Include a chart if possible.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 📊 Video streaming performance metrics
@@ -842,11 +881,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Analyze error rates and playback issues for the last 7 days. Break down errors by platform and type. Include a chart showing error distribution.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 ⚠️ Error rates and playback issues
@@ -854,11 +894,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Analyze CDN performance and provide optimization recommendations. Include geographic distribution analysis and a chart of views by country.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 🚀 CDN optimization recommendations
@@ -866,11 +907,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Show user engagement analytics including viewer experience scores, watch time, and completion rates for the last 7 days.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 👥 User engagement analytics
@@ -878,11 +920,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Generate an audio report summarizing video analytics for the last 7 days')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 🎵 Generate an audio report
@@ -890,11 +933,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('List my top performing videos by views and engagement for the last 7 days. Include view counts and performance metrics.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 🏆 Top performing videos
@@ -902,11 +946,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Show video views and watch time statistics for the last 7 days. Include total views, watch time, and average session duration. Create a chart showing views over time.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 📈 Views and watch time statistics
@@ -914,11 +959,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Analyze video quality and bitrate performance including resolution distribution, bitrate adaptation, and quality metrics for the last 7 days.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 🎬 Video quality and bitrate analysis
@@ -926,11 +972,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Show geographic distribution of viewers for the last 7 days. Create a bar chart of views by country and a pie chart showing country distribution percentages.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 🌍 Geographic viewer distribution
@@ -938,11 +985,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Analyze devices and browsers used by viewers for the last 7 days. Break down by operating system, device type, and browser. Include charts.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 💻 Device and browser analytics
@@ -950,11 +998,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Show buffering and rebuffering metrics for the last 7 days. Include rebuffer percentage, frequency, and duration. Create a chart showing rebuffering trends over time.')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 ⏱️ Buffering and rebuffering metrics
@@ -962,11 +1011,12 @@ export default function MuxAnalyticsChat() {
               <button
                 onClick={() => handleOptionClick('Create multiple charts showing video analytics trends for the last 7 days including views over time, error rates, and performance metrics comparison')}
                 disabled={!agent || isLoading}
-                className="px-3 py-2 rounded-lg border text-left text-xs transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-3 rounded-xl border text-left text-xs transition-all hover:scale-[1.02] hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 style={{ 
                   backgroundColor: 'var(--bg)', 
                   borderColor: 'var(--border)',
-                  color: 'var(--fg)'
+                  color: 'var(--fg)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 📊 Create analytics charts and graphs
@@ -1009,20 +1059,20 @@ export default function MuxAnalyticsChat() {
             {isLoading && !isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
               <div className="flex justify-start">
                 <div
-                  className="max-w-[85%] px-2.5 py-1.5 rounded-md border"
+                  className="max-w-[85%] px-4 py-3 rounded-xl border shadow-sm"
                   style={{
-                    backgroundColor: 'var(--bg)',
+                    backgroundColor: 'var(--bg-soft)',
                     borderColor: 'var(--border)',
                     color: 'var(--fg-muted)'
                   }}
                 >
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <div className="flex gap-0.5">
-                      <span className="animate-bounce text-[10px]" style={{ animationDelay: '0ms', color: 'var(--accent)' }}>●</span>
-                      <span className="animate-bounce text-[10px]" style={{ animationDelay: '150ms', color: 'var(--accent)' }}>●</span>
-                      <span className="animate-bounce text-[10px]" style={{ animationDelay: '300ms', color: 'var(--accent)' }}>●</span>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="flex gap-1">
+                      <span className="animate-bounce text-xs" style={{ animationDelay: '0ms', color: 'var(--accent)' }}>●</span>
+                      <span className="animate-bounce text-xs" style={{ animationDelay: '150ms', color: 'var(--accent)' }}>●</span>
+                      <span className="animate-bounce text-xs" style={{ animationDelay: '300ms', color: 'var(--accent)' }}>●</span>
                     </div>
-                    <span>Analyzing streaming data...</span>
+                    <span className="font-medium">Analyzing streaming data...</span>
                   </div>
                 </div>
               </div>
@@ -1032,16 +1082,16 @@ export default function MuxAnalyticsChat() {
             {isStreaming && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
               <div className="flex justify-start">
                 <div
-                  className="max-w-[85%] px-2.5 py-1.5 rounded-md border"
+                  className="max-w-[85%] px-4 py-3 rounded-xl border-2 shadow-sm"
                   style={{
-                    backgroundColor: 'var(--bg-soft)',
+                    backgroundColor: 'var(--accent-muted)',
                     borderColor: 'var(--accent)',
-                    borderWidth: '1px'
+                    borderWidth: '2px'
                   }}
                 >
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }}></div>
-                    <span style={{ color: 'var(--fg-muted)' }}>Generating response...</span>
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2.5 h-2.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }}></div>
+                    <span className="font-medium" style={{ color: 'var(--fg)' }}>Generating response...</span>
                   </div>
                 </div>
               </div>

@@ -96,7 +96,7 @@ if (!isPlaygroundMode) {
   app.use(express.json());
   
   // Add request logging middleware for debugging
-  app.use((req: any, res: any, next: any) => {
+  app.use((req: any, _res: any, next: any) => {
     console.log(`[Express] ${req.method} ${req.path}`);
     next();
   });
@@ -666,7 +666,7 @@ if (!isPlaygroundMode) {
   });
   
   // Add error handling middleware at the end (after all routes)
-  app.use((err: any, req: any, res: any, next: any) => {
+  app.use((err: any, _req: any, res: any, _next: any) => {
     console.error('[Express] Error:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message || 'Internal server error' });
