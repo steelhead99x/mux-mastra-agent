@@ -479,10 +479,36 @@ export const muxEngagementMetricsTool = createTool({
                 try {
                     let metricData;
                     if (tools['get_overall_values']) {
-                        metricData = await tools['get_overall_values'].execute({
+                        try {
+                            metricData = await tools['get_overall_values'].execute({
+                                context: {
+                                    METRIC_ID: metricId,
+                                    timeframe: [start, end]
+                                }
+                            });
+                        } catch (error) {
+                            // Fallback to invoke_api_endpoint if get_overall_values fails
+                            console.warn(`[engagement-metrics] get_overall_values failed for ${metricId}, trying invoke_api_endpoint:`, error);
+                            if (tools['invoke_api_endpoint']) {
+                                metricData = await tools['invoke_api_endpoint'].execute({
+                                    context: {
+                                        endpoint_name: 'get_overall_values_data_metrics',
+                                        args: {
+                                            METRIC_ID: metricId,
+                                            timeframe: formatTimeframeForMuxApi(start, end)
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    } else if (tools['invoke_api_endpoint']) {
+                        metricData = await tools['invoke_api_endpoint'].execute({
                             context: {
-                                METRIC_ID: metricId,
-                                timeframe: [start, end]
+                                endpoint_name: 'get_overall_values_data_metrics',
+                                args: {
+                                    METRIC_ID: metricId,
+                                    timeframe: formatTimeframeForMuxApi(start, end)
+                                }
                             }
                         });
                     }

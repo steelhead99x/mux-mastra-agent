@@ -173,6 +173,7 @@ export class MuxDataMcpClient {
                         id,
                         description,
                         inputSchema: z.object({
+                            METRIC_ID: z.string().optional().describe("Metric ID for the query"),
                             timeframe: z.union([
                                 z.string().describe("Relative time expression like 'last 7 days', 'last 24 hours', etc."),
                                 z.array(z.number()).length(2).describe("Unix timestamp array [start, end]"),
@@ -181,7 +182,7 @@ export class MuxDataMcpClient {
                             filters: z.array(z.string()).optional(),
                             limit: z.number().optional(),
                             group_by: z.string().optional(),
-                        }),
+                        }).passthrough(), // Allow additional fields to pass through
                         execute: async ({ context }) => {
                             // Parse timeframe if it's a relative expression
                             let processedContext = { ...context };
