@@ -258,34 +258,9 @@ export async function getChartUrl(chartPath: string): Promise<string> {
         return `${baseUrl}/files/charts/${fileName}`;
     }
     
-    // Priority 3: Use hostname from VITE_MASTRA_API_HOST with frontend port
-    // Charts are displayed in the frontend, so they should use the frontend's hostname and port
-    if (process.env.VITE_MASTRA_API_HOST) {
-        try {
-            // Parse VITE_MASTRA_API_HOST (format: http://hostname:port or https://hostname:port)
-            const viteHost = process.env.VITE_MASTRA_API_HOST.trim();
-            const urlMatch = viteHost.match(/^(https?):\/\/([^:/]+)(?::(\d+))?/);
-            
-            if (urlMatch) {
-                const [, protocol, hostname] = urlMatch;
-                // Use frontend port instead of backend port
-                const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
-                
-                // Handle standard ports (don't include port in URL for standard HTTP/HTTPS ports)
-                const portSuffix = (protocol === 'https' && frontendPort === 443) || (protocol === 'http' && frontendPort === 80)
-                    ? ''
-                    : `:${frontendPort}`;
-                
-                const baseUrl = `${protocol}://${hostname}${portSuffix}`;
-                return `${baseUrl}/files/charts/${fileName}`;
-            }
-        } catch (error) {
-            console.warn('[getChartUrl] Failed to parse VITE_MASTRA_API_HOST, falling back to default:', error);
-        }
-    }
-    
-    // Priority 4: Construct URL from HOST and FRONTEND_PORT environment variables
-    const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+    // Priority 3: Construct URL from HOST and BACKEND_PORT/PORT environment variables
+    // Charts are served from the backend, so use backend host/port
+    const port = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3001', 10);
     let host = process.env.HOST || '0.0.0.0';
     
     // If HOST is 0.0.0.0, determine appropriate hostname for URL
@@ -307,12 +282,14 @@ export async function getChartUrl(chartPath: string): Promise<string> {
         : (process.env.PROTOCOL || 'http');
     
     // Handle standard ports (don't include port in URL for standard HTTP/HTTPS ports)
-    const portSuffix = (protocol === 'https' && frontendPort === 443) || (protocol === 'http' && frontendPort === 80)
+    const portSuffix = (protocol === 'https' && port === 443) || (protocol === 'http' && port === 80)
         ? ''
-        : `:${frontendPort}`;
+        : `:${port}`;
     
     const baseUrl = `${protocol}://${host}${portSuffix}`;
-    return `${baseUrl}/files/charts/${fileName}`;
+    const chartUrl = `${baseUrl}/files/charts/${fileName}`;
+    console.log(`[getChartUrl] Generated chart URL: ${chartUrl} (host: ${host}, port: ${port}, protocol: ${protocol})`);
+    return chartUrl;
 }
 
 // ============================================================================

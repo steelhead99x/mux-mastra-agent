@@ -240,6 +240,7 @@ if (!isPlaygroundMode) {
       let stream;
       try {
         console.log('[stream] Calling agent.stream with', messages.length, 'messages');
+        console.log('[stream] Last user message:', messages[messages.length - 1]?.content?.substring(0, 100));
         stream = await agent.stream(messages);
         console.log('[stream] Got stream object, keys:', stream ? Object.keys(stream) : 'null');
         if (!stream) {
@@ -247,6 +248,14 @@ if (!isPlaygroundMode) {
         }
         if (!stream.textStream && !stream.text) {
           console.warn('[stream] Stream has no textStream or text property');
+        }
+        // Log if stream has tool calls or other properties
+        if (stream && typeof stream === 'object') {
+          const streamKeys = Object.keys(stream);
+          console.log('[stream] Stream properties:', streamKeys);
+          if ('toolCalls' in stream || 'toolResults' in stream) {
+            console.log('[stream] Stream has tool-related properties');
+          }
         }
       } catch (agentError) {
         console.error('[stream] Agent execution failed:', agentError);
@@ -284,6 +293,7 @@ if (!isPlaygroundMode) {
             console.log('[stream] Client disconnected');
           });
           
+          let totalChars = 0;
           for await (const chunk of stream.textStream) {
             // Check if response is still writable
             if (res.writableEnded || res.destroyed) {
@@ -293,9 +303,14 @@ if (!isPlaygroundMode) {
             
             if (chunk && typeof chunk === 'string') {
               chunkCount++;
+              totalChars += chunk.length;
               // Track if we've written non-whitespace content
               if (chunk.trim().length > 0) {
                 hasWritten = true;
+              }
+              // Log chunks that might contain chart URLs
+              if (chunk.includes('chart') || chunk.includes('.png') || chunk.includes('files/charts')) {
+                console.log(`[stream] Chunk ${chunkCount} contains chart reference:`, chunk.substring(0, 200));
               }
               try {
                 res.write(chunk);
@@ -310,7 +325,7 @@ if (!isPlaygroundMode) {
             }
           }
           
-          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks, hasWritten: ${hasWritten}`);
+          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks, ${totalChars} total chars, hasWritten: ${hasWritten}`);
           
           // Only end if we haven't already
           if (!res.writableEnded && !res.destroyed) {

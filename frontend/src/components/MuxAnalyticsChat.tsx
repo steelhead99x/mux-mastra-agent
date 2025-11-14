@@ -177,8 +177,8 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
         return urlMatch[1];
       }
     }
-    // Fallback to direct URL pattern
-    const imagePattern = /https:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?/gi;
+    // Fallback to direct URL pattern (supports both http and https)
+    const imagePattern = /https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?/gi;
     const matches = content.match(imagePattern);
     return matches ? matches[0] : null;
   }
@@ -186,14 +186,14 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
   // Function to extract all image URLs from content
   const extractAllImageUrls = (content: string): string[] => {
     const urls: string[] = [];
-    // Extract markdown images
+    // Extract markdown images (supports both http and https)
     const markdownImagePattern = /!\[[^\]]*\]\(([^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?)\)/gi;
     let match;
     while ((match = markdownImagePattern.exec(content)) !== null) {
       if (match[1]) urls.push(match[1]);
     }
-    // Extract direct URLs
-    const directUrlPattern = /https:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?/gi;
+    // Extract direct URLs (supports both http and https)
+    const directUrlPattern = /https?:\/\/[^\s]+\.(png|jpg|jpeg|gif|webp|svg)(?:\?[^\s]*)?/gi;
     let urlMatch;
     while ((urlMatch = directUrlPattern.exec(content)) !== null) {
       if (!urls.includes(urlMatch[0])) {
