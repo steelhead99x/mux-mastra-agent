@@ -185,11 +185,20 @@ export class MuxDataMcpClient {
                         execute: async ({ context }) => {
                             // Parse timeframe if it's a relative expression
                             let processedContext = { ...context };
-                            if (context.timeframe && typeof context.timeframe === 'string') {
-                                // Import the parsing function from mux-analytics.ts
-                                const { parseRelativeTimeframe } = await import('../tools/mux-analytics.js');
-                                const [start, end] = parseRelativeTimeframe(context.timeframe);
-                                processedContext.timeframe = [start, end];
+                            if (context.timeframe) {
+                                if (typeof context.timeframe === 'string') {
+                                    // Import the parsing function from mux-analytics.ts
+                                    const { parseRelativeTimeframe } = await import('../tools/mux-analytics.js');
+                                    const [start, end] = parseRelativeTimeframe(context.timeframe);
+                                    // Mux API expects timeframe as array of strings (epoch timestamps as strings)
+                                    processedContext.timeframe = [String(start), String(end)];
+                                } else if (Array.isArray(context.timeframe) && context.timeframe.length === 2) {
+                                    // Convert number array to string array for Mux API
+                                    processedContext.timeframe = [
+                                        String(context.timeframe[0]),
+                                        String(context.timeframe[1])
+                                    ];
+                                }
                             }
                             
                             return await tools['invoke_api_endpoint'].execute({

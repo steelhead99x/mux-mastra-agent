@@ -36,6 +36,14 @@ export function getCurrentTime(): number {
 }
 
 /**
+ * Convert timeframe numbers to string array format expected by Mux API
+ * Mux API expects timeframe as array of strings (epoch timestamps as strings)
+ */
+function formatTimeframeForMuxApi(start: number, end: number): string[] {
+    return [String(start), String(end)];
+}
+
+/**
  * Parse relative time expressions like "last 7 days", "last 24 hours", etc.
  * Returns [startTime, endTime] as Unix timestamps
  */
@@ -289,7 +297,7 @@ export const muxStreamingPerformanceTool = createTool({
                                 endpoint_name: 'get_overall_values_data_metrics',
                                 args: {
                                     METRIC_ID: metricId,
-                                    timeframe: [start, end],
+                                    timeframe: formatTimeframeForMuxApi(start, end),
                                     ...(filters && filters.length > 0 && { filters })
                                 }
                             }
@@ -610,7 +618,7 @@ export const muxAnalyticsTool = createTool({
                                 endpoint_name: 'get_overall_values_data_metrics',
                                 args: {
                                     METRIC_ID: metricId,
-                                    timeframe: [start, end],
+                                    timeframe: formatTimeframeForMuxApi(start, end),
                                     ...(filters && filters.length > 0 && { filters })
                                 }
                             };
@@ -825,7 +833,7 @@ export const muxVideoViewsTool = createTool({
                             const params = {
                                 endpoint_name: endpoint,
                                 args: {
-                                    timeframe: [start, end],
+                                    timeframe: formatTimeframeForMuxApi(start, end),
                                     limit: limit || 25,
                                     ...(filters && filters.length > 0 && { filters })
                                 }
@@ -963,7 +971,7 @@ export const muxErrorsTool = createTool({
                             const params = {
                                 endpoint_name: endpoint,
                                 args: {
-                                    timeframe: [start, end],
+                                    timeframe: formatTimeframeForMuxApi(start, end),
                                     ...(filters && filters.length > 0 && { filters })
                                 }
                             };
