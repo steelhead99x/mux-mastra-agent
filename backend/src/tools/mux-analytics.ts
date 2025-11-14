@@ -1515,13 +1515,15 @@ export const muxChartGenerationTool = createTool({
             console.log(`[mux-chart-generation] Chart data points: ${data.length}, Title: "${title}"`);
             
             // Return chart URL in a format that's easy for the agent to use
+            // CRITICAL: The agent MUST include this chartUrl in its response text using markdown syntax
             return {
                 success: true,
                 chartUrl,
                 chartPath: fileName, // Only return filename, not full path
                 chartType,
                 title,
-                message: `Chart generated successfully. Use this URL in markdown format: ![${title}](${chartUrl})`
+                message: `Chart generated successfully. You MUST include this chart in your response using markdown: ## ${title}\n\n![${title}](${chartUrl})\n\n`,
+                markdown: `## ${title}\n\n![${title}](${chartUrl})\n\n` // Direct markdown format for agent to use
             };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);

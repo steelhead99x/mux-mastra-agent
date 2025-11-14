@@ -336,7 +336,8 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
                     decoding="async"
                     style={{ 
                       minHeight: '200px',
-                      backgroundColor: 'var(--bg-soft)'
+                      backgroundColor: 'transparent', // Charts have their own background
+                      display: 'block'
                     }}
                     onError={(e) => {
                       console.warn('Failed to load image:', imageUrl);
@@ -601,6 +602,15 @@ export default function MuxAnalyticsChat() {
             const { done, value } = await Promise.race([readPromise, timeoutPromise]) as ReadableStreamReadResult<Uint8Array>
             
             if (done) {
+              // Flush the decoder to get any remaining buffered bytes
+              const finalChunk = decoder.decode()
+              if (finalChunk) {
+                fullContent += finalChunk
+                setStreamingContent(fullContent)
+                if (finalChunk.length > 0) {
+                  console.log(`[MuxAnalyticsChat] Final flush chunk:`, finalChunk.length, 'chars')
+                }
+              }
               const elapsed = Date.now() - startTime
               console.log(`[MuxAnalyticsChat] Stream ended. Total chunks: ${chunkCount}, Content length: ${fullContent.length}, Time: ${elapsed}ms`)
               break
@@ -613,8 +623,9 @@ export default function MuxAnalyticsChat() {
               if (chunk) {
                 fullContent += chunk
                 setStreamingContent(fullContent)
-                if (chunkCount % 10 === 0 || chunk.length > 100) {
-                  console.log(`[MuxAnalyticsChat] Streamed chunk ${chunkCount}:`, chunk.length, 'chars')
+                // Log every chunk for debugging (not just every 10th)
+                if (chunkCount <= 5 || chunkCount % 10 === 0 || chunk.length > 100) {
+                  console.log(`[MuxAnalyticsChat] Streamed chunk ${chunkCount}:`, chunk.length, 'chars', chunk.substring(0, 100))
                 }
               }
             }

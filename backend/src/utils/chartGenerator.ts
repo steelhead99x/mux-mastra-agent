@@ -246,7 +246,7 @@ export async function generateTemperatureChartFromForecast(
 export async function getChartUrl(chartPath: string): Promise<string> {
     const fileName = basename(chartPath);
     
-    // Priority 1: If CHART_URL is explicitly set, use it (highest priority for maintainability)
+    // ALWAYS use CHART_URL if it's set - this is the only source when configured
     if (process.env.CHART_URL) {
         let chartUrl = process.env.CHART_URL.replace(/\/$/, ''); // Remove trailing slash
         
@@ -264,27 +264,20 @@ export async function getChartUrl(chartPath: string): Promise<string> {
             }
         }
         
-        console.log(`[getChartUrl] Using CHART_URL: ${chartUrl}`);
+        console.log(`[getChartUrl] Using CHART_URL (always when set): ${chartUrl}`);
         return chartUrl;
     }
     
     // Priority 2: In development, use frontend origin (Vite proxy handles /files)
     // Backend can't access VITE_ prefixed vars, so use FRONTEND_ORIGIN or default
     if (process.env.NODE_ENV !== 'production') {
-        // In development, charts should be accessible via frontend (Vite proxy)
-        // Use FRONTEND_ORIGIN if set, otherwise default to localhost:3000
-        let frontendOrigin = process.env.FRONTEND_ORIGIN;
+        // In development, ALWAYS use localhost to ensure charts are accessible
+        // Even if FRONTEND_ORIGIN is set to an IP address, use localhost for reliability
+        const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+        const frontendOrigin = `http://localhost:${frontendPort}`;
         
-        if (!frontendOrigin) {
-            // Default to localhost:3000 for Vite dev server
-            const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
-            frontendOrigin = `http://localhost:${frontendPort}`;
-        }
-        
-        // Ensure no trailing slash
-        frontendOrigin = frontendOrigin.replace(/\/$/, '');
         const chartUrl = `${frontendOrigin}/files/charts/${fileName}`;
-        console.log(`[getChartUrl] Generated chart URL (dev): ${chartUrl} (using frontend origin: ${frontendOrigin})`);
+        console.log(`[getChartUrl] Generated chart URL (dev): ${chartUrl} (always using localhost:${frontendPort} in development)`);
         return chartUrl;
     }
     
