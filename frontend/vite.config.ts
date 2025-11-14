@@ -66,6 +66,29 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        '/files': {
+          target: `http://localhost:${env.BACKEND_PORT || '3001'}`,
+          changeOrigin: true,
+          timeout: 30000, // 30 second timeout for file serving
+          configure: (proxy, _options) => {
+            proxy.on('error', (err, _req, res) => {
+              console.log('[vite] /files proxy error', err);
+              // Don't crash on proxy errors, just log them
+              if (res && !res.headersSent) {
+                res.writeHead(502, {
+                  'Content-Type': 'text/plain',
+                });
+                res.end('Backend server not available');
+              }
+            });
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              // Log proxy requests in development
+              if (mode === 'development') {
+                console.log(`[vite] Proxying /files ${req.method} ${req.url} to backend`);
+              }
+            });
+          },
+        },
       },
     },
     build: {

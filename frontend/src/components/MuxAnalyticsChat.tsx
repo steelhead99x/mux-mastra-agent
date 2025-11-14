@@ -380,11 +380,16 @@ const MessageComponent = memo(({ message, isStreaming = false }: { message: Mess
   return (
     <div className={`whitespace-pre-wrap text-xs group ${message.role === 'user' ? 'ml-auto' : ''}`}>
       <div className={`flex items-start gap-2 ${message.role === 'user' ? 'flex-row-reverse' : ''}`}>
-        <div className={`flex-1 min-w-0 rounded-lg p-2.5 ${
-          message.role === 'user' 
-            ? 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800' 
-            : 'bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700'
-        }`}>
+        <div className={`flex-1 min-w-0 rounded-lg p-2.5 border`}
+          style={{
+            backgroundColor: message.role === 'user' 
+              ? 'var(--accent-muted)' 
+              : 'var(--bg)',
+            borderColor: message.role === 'user'
+              ? 'var(--accent)'
+              : 'var(--border)',
+            color: 'var(--fg)'
+          }}>
           {renderContent(message.content)}
         </div>
         {/* Only show copy button when streaming is complete */}
@@ -785,7 +790,9 @@ export default function MuxAnalyticsChat() {
 
   // Handle streaming updates
   useEffect(() => {
-    if (isStreaming && streamingContent && messages.length > 0) {
+    // Only update messages if we have streaming content (during streaming) or if streaming just completed
+    // Don't clear messages when streamingContent is empty
+    if (streamingContent && messages.length > 0) {
       const lastMessage = messages[messages.length - 1]
       if (lastMessage.role === 'assistant') {
         // Update the last assistant message with streaming content
@@ -804,13 +811,28 @@ export default function MuxAnalyticsChat() {
     }
   }, [isStreaming, streamingContent, messages.length]) // Only update when streaming content changes
 
-  // Handle completion
+  // Handle completion - save final content before resetting
   useEffect(() => {
     if (!isStreaming && !isLoading && hasAssistantResponded) {
+      // Ensure final content is saved to message before resetting
+      if (streamingContent) {
+        setMessages(prev => {
+          const updated = [...prev]
+          const lastIndex = updated.length - 1
+          if (updated[lastIndex]?.role === 'assistant') {
+            updated[lastIndex] = {
+              ...updated[lastIndex],
+              content: streamingContent
+            }
+          }
+          return updated
+        })
+      }
+      // Reset state after ensuring content is saved
       setHasAssistantResponded(false)
       setStreamingContent('') // Reset streaming content when done
     }
-  }, [isStreaming, isLoading, hasAssistantResponded])
+  }, [isStreaming, isLoading, hasAssistantResponded, streamingContent])
 
   return (
     <div className="flex flex-col gap-2">
@@ -1036,11 +1058,7 @@ export default function MuxAnalyticsChat() {
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[85%] px-2.5 py-1.5 rounded-md group message-bubble ${
-                    message.role === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-white border'
-                  }`}
+                  className="max-w-[85%] px-2.5 py-1.5 rounded-md group message-bubble border"
                   style={{
                     backgroundColor: message.role === 'user' ? 'var(--accent)' : 'var(--bg)',
                     borderColor: message.role === 'assistant' ? 'var(--border)' : 'transparent',

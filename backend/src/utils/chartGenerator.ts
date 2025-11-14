@@ -246,49 +246,62 @@ export async function generateTemperatureChartFromForecast(
 export async function getChartUrl(chartPath: string): Promise<string> {
     const fileName = basename(chartPath);
     
-    // Priority 1: If STREAMING_PORTFOLIO_BASE_URL is set, use it (production or staging)
+    // Priority 1: In development, use frontend origin (Vite proxy handles /files)
+    // Backend can't access VITE_ prefixed vars, so use FRONTEND_ORIGIN or default
+    if (process.env.NODE_ENV !== 'production') {
+        // In development, charts should be accessible via frontend (Vite proxy)
+        // Use FRONTEND_ORIGIN if set, otherwise default to localhost:3000
+        let frontendOrigin = process.env.FRONTEND_ORIGIN;
+        
+        if (!frontendOrigin) {
+            // Default to localhost:3000 for Vite dev server
+            const frontendPort = parseInt(process.env.FRONTEND_PORT || '3000', 10);
+            frontendOrigin = `http://localhost:${frontendPort}`;
+        }
+        
+        // Ensure no trailing slash
+        frontendOrigin = frontendOrigin.replace(/\/$/, '');
+        const chartUrl = `${frontendOrigin}/files/charts/${fileName}`;
+        console.log(`[getChartUrl] Generated chart URL (dev): ${chartUrl} (using frontend origin: ${frontendOrigin})`);
+        return chartUrl;
+    }
+    
+    // Priority 3: If STREAMING_PORTFOLIO_BASE_URL is set, use it (production fallback)
     if (process.env.STREAMING_PORTFOLIO_BASE_URL) {
         const baseUrl = process.env.STREAMING_PORTFOLIO_BASE_URL.replace(/\/$/, ''); // Remove trailing slash
-        return `${baseUrl}/files/charts/${fileName}`;
+        const chartUrl = `${baseUrl}/files/charts/${fileName}`;
+        console.log(`[getChartUrl] Using STREAMING_PORTFOLIO_BASE_URL: ${chartUrl}`);
+        return chartUrl;
     }
     
-    // Priority 2: If BASE_URL is set, use it
+    // Priority 4: If BASE_URL is set, use it
     if (process.env.BASE_URL) {
         const baseUrl = process.env.BASE_URL.replace(/\/$/, ''); // Remove trailing slash
-        return `${baseUrl}/files/charts/${fileName}`;
+        const chartUrl = `${baseUrl}/files/charts/${fileName}`;
+        console.log(`[getChartUrl] Using BASE_URL: ${chartUrl}`);
+        return chartUrl;
     }
     
-    // Priority 3: Construct URL from HOST and BACKEND_PORT/PORT environment variables
-    // Charts are served from the backend, so use backend host/port
+    // Priority 5: Production fallback - Construct URL from HOST and BACKEND_PORT/PORT
     const port = parseInt(process.env.BACKEND_PORT || process.env.PORT || '3001', 10);
     let host = process.env.HOST || '0.0.0.0';
     
     // If HOST is 0.0.0.0, determine appropriate hostname for URL
-    // 0.0.0.0 is for binding to all interfaces, not for URLs
     if (host === '0.0.0.0') {
-        if (process.env.NODE_ENV === 'production') {
-            // In production, try HOSTNAME (common in Docker/containers) or fallback
-            host = process.env.HOSTNAME || process.env.DOMAIN || 'localhost';
-        } else {
-            // In development, use localhost
-            host = 'localhost';
-        }
+        host = process.env.HOSTNAME || process.env.DOMAIN || 'localhost';
     }
     
     // Determine protocol based on environment
-    // Use HTTPS in production unless explicitly overridden, HTTP in development
-    const protocol = process.env.NODE_ENV === 'production' 
-        ? (process.env.PROTOCOL || 'https')
-        : (process.env.PROTOCOL || 'http');
+    const protocol = process.env.PROTOCOL || 'https';
     
-    // Handle standard ports (don't include port in URL for standard HTTP/HTTPS ports)
+    // Handle standard ports
     const portSuffix = (protocol === 'https' && port === 443) || (protocol === 'http' && port === 80)
         ? ''
         : `:${port}`;
     
     const baseUrl = `${protocol}://${host}${portSuffix}`;
     const chartUrl = `${baseUrl}/files/charts/${fileName}`;
-    console.log(`[getChartUrl] Generated chart URL: ${chartUrl} (host: ${host}, port: ${port}, protocol: ${protocol})`);
+    console.log(`[getChartUrl] Generated chart URL (fallback): ${chartUrl} (host: ${host}, port: ${port}, protocol: ${protocol})`);
     return chartUrl;
 }
 

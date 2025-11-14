@@ -237,26 +237,78 @@ if (!isPlaygroundMode) {
       }
       
       // Try to get stream before setting response headers
+      // Mastra's agent.stream() handles tool calls internally
       let stream;
       try {
         console.log('[stream] Calling agent.stream with', messages.length, 'messages');
         console.log('[stream] Last user message:', messages[messages.length - 1]?.content?.substring(0, 100));
+        
+        // Use agent.stream - Mastra handles tool calls and waits for them
         stream = await agent.stream(messages);
-        console.log('[stream] Got stream object, keys:', stream ? Object.keys(stream) : 'null');
+        
         if (!stream) {
           throw new Error('Agent returned null stream');
         }
-        if (!stream.textStream && !stream.text) {
-          console.warn('[stream] Stream has no textStream or text property');
-        }
-        // Log if stream has tool calls or other properties
+        
+        // ENHANCED: Log stream structure for debugging
+        console.log('[stream] ========== STREAM STRUCTURE ANALYSIS ==========');
         if (stream && typeof stream === 'object') {
           const streamKeys = Object.keys(stream);
-          console.log('[stream] Stream properties:', streamKeys);
-          if ('toolCalls' in stream || 'toolResults' in stream) {
-            console.log('[stream] Stream has tool-related properties');
+          console.log('[stream] Stream object keys:', streamKeys);
+          console.log('[stream] Stream object keys count:', streamKeys.length);
+          
+          const streamInfo: any = {
+            hasTextStream: !!stream.textStream,
+            hasText: !!stream.text,
+            hasToolCallsStream: !!stream.toolCallsStream,
+            hasToolResultsStream: !!stream.toolResultsStream,
+            hasToolCalls: 'toolCalls' in stream,
+            hasToolResults: 'toolResults' in stream,
+            hasFullStream: !!stream.fullStream,
+            hasStreamData: !!stream.streamData,
+            hasStreamText: !!stream.streamText
+          };
+          console.log('[stream] Stream structure check:', JSON.stringify(streamInfo, null, 2));
+          
+          // Log actual stream object structure (first level only)
+          if (streamKeys.length > 0) {
+            const typeMap: Record<string, string> = {};
+            streamKeys.forEach(key => {
+              const value = (stream as any)[key];
+              typeMap[key] = typeof value;
+              if (value && typeof value === 'object') {
+                if (value[Symbol.asyncIterator]) {
+                  typeMap[key] = 'AsyncIterable';
+                } else if (value[Symbol.iterator]) {
+                  typeMap[key] = 'Iterable';
+                } else if (Array.isArray(value)) {
+                  typeMap[key] = 'Array';
+                } else {
+                  typeMap[key] = 'Object';
+                }
+              }
+            });
+            console.log('[stream] Stream object types:', JSON.stringify(typeMap, null, 2));
+          }
+          
+          // Check which stream path we'll use
+          if (stream.fullStream) {
+            console.log('[stream] ✓ Will use fullStream (includes tool calls and text)');
+          } else if (stream.textStream) {
+            console.log('[stream] ✓ Will use textStream (text only, tool calls separate)');
+            if (stream.toolCallsStream) {
+              console.log('[stream]   - Has toolCallsStream (will wait for it)');
+            }
+            if (stream.toolResultsStream) {
+              console.log('[stream]   - Has toolResultsStream (will wait for it)');
+            }
+          } else if (stream.text) {
+            console.log('[stream] ✓ Will use text (non-streaming, already complete)');
+          } else {
+            console.warn('[stream] ⚠ No recognized stream property found!');
           }
         }
+        console.log('[stream] ===============================================');
       } catch (agentError) {
         console.error('[stream] Agent execution failed:', agentError);
         // Return error before headers are sent
@@ -283,16 +335,301 @@ if (!isPlaygroundMode) {
       });
       
       // Stream the response back to the client
-      if (stream && stream.textStream) {
+      // Per Mastra docs: iterate over stream directly to get all events (text-delta, tool-call, etc.)
+      // Then use textStream for the final response after tool calls complete
+      if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+        // Direct iteration - Mastra stream is async iterable (latest API)
+        console.log('[stream] Using direct stream iteration (latest Mastra API)');
         try {
           let chunkCount = 0;
           let hasWritten = false;
+          let toolCallsCount = 0;
+          let totalChars = 0;
+          
+          req.on('close', () => {
+            console.log('[stream] Client disconnected');
+          });
+          
+          // Iterate over stream to get all events including text-delta
+          for await (const chunk of stream as AsyncIterable<any>) {
+            if (res.writableEnded || res.destroyed) {
+              console.log('[stream] Response ended, stopping stream');
+              break;
+            }
+            
+            // Handle different event types per Mastra docs
+            const eventType = chunk?.type || 'unknown';
+            console.log(`[stream] Event type: ${eventType}`);
+            
+            if (eventType === 'text-delta') {
+              // Extract text from text-delta events
+              const textDelta = chunk?.payload?.textDelta || chunk?.textDelta || chunk?.delta || '';
+              if (textDelta && typeof textDelta === 'string' && textDelta.trim().length > 0) {
+                chunkCount++;
+                totalChars += textDelta.length;
+                hasWritten = true;
+                if (textDelta.includes('chart') || textDelta.includes('.png') || textDelta.includes('files/charts')) {
+                  console.log(`[stream] ✓ Chunk ${chunkCount} contains chart reference:`, textDelta.substring(0, 200));
+                }
+                try {
+                  res.write(textDelta);
+                  if (typeof (res as any).flush === 'function') {
+                    (res as any).flush();
+                  }
+                } catch (writeError) {
+                  console.error('[stream] Write error:', writeError);
+                  break;
+                }
+              }
+            } else if (eventType === 'tool-call') {
+              toolCallsCount++;
+              const toolName = chunk?.payload?.toolName || chunk?.toolName || 'unknown';
+              console.log(`[stream] Tool call ${toolCallsCount}: ${toolName}`);
+            } else if (eventType === 'tool-result') {
+              const toolName = chunk?.payload?.toolName || chunk?.toolName || 'unknown';
+              console.log(`[stream] Tool result: ${toolName}`);
+            } else if (eventType === 'finish') {
+              console.log(`[stream] Stream finished, reason: ${chunk?.payload?.finishReason || 'unknown'}`);
+            }
+          }
+          
+          console.log(`[stream] Direct iteration completed: ${chunkCount} text chunks, ${totalChars} chars, ${toolCallsCount} tool calls, hasWritten: ${hasWritten}`);
+          
+          if (!res.writableEnded && !res.destroyed) {
+            if (!hasWritten) {
+              res.write('\n[Response completed]');
+            }
+            res.end();
+          }
+        } catch (streamError) {
+          console.error('[stream] Direct iteration error:', streamError);
+          if (!res.writableEnded && !res.destroyed) {
+            try {
+              res.write(`\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+            } catch (writeError) {
+              console.error('[stream] Failed to write error:', writeError);
+            }
+            res.end();
+          }
+        }
+      } else if (stream && stream.textStream) {
+        // Fallback: Use textStream if direct iteration not available
+        console.log('[stream] Using textStream (waits for tool calls, then streams response)');
+        try {
+          let chunkCount = 0;
+          let hasWritten = false;
+          let totalChars = 0;
+          
+          req.on('close', () => {
+            console.log('[stream] Client disconnected');
+          });
+          
+          // textStream includes the agent's final response AFTER tool calls complete
+          for await (const chunk of stream.textStream) {
+            if (res.writableEnded || res.destroyed) {
+              console.log('[stream] Response ended, stopping stream');
+              break;
+            }
+            
+            if (chunk && typeof chunk === 'string') {
+              chunkCount++;
+              totalChars += chunk.length;
+              if (chunk.trim().length > 0) {
+                hasWritten = true;
+              }
+              if (chunk.includes('chart') || chunk.includes('.png') || chunk.includes('files/charts')) {
+                console.log(`[stream] ✓ Chunk ${chunkCount} contains chart reference:`, chunk.substring(0, 200));
+              }
+              try {
+                res.write(chunk);
+                if (typeof (res as any).flush === 'function') {
+                  (res as any).flush();
+                }
+              } catch (writeError) {
+                console.error('[stream] Write error:', writeError);
+                break;
+              }
+            }
+          }
+          
+          console.log(`[stream] TextStream completed: ${chunkCount} chunks, ${totalChars} chars, hasWritten: ${hasWritten}`);
+          
+          if (!res.writableEnded && !res.destroyed) {
+            if (!hasWritten) {
+              res.write('\n[Response completed]');
+            }
+            res.end();
+          }
+        } catch (streamError) {
+          console.error('[stream] TextStream error:', streamError);
+          if (!res.writableEnded && !res.destroyed) {
+            try {
+              res.write(`\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+            } catch (writeError) {
+              console.error('[stream] Failed to write error:', writeError);
+            }
+            res.end();
+          }
+        }
+      } else if (stream && stream.fullStream) {
+        // Use fullStream which includes tool calls and text
+        console.log('[stream] Using fullStream (includes tool calls)');
+        try {
+          let chunkCount = 0;
+          let hasWritten = false;
+          let toolCallsCount = 0;
+          let totalChars = 0;
+          
+          req.on('close', () => {
+            console.log('[stream] Client disconnected');
+          });
+          
+          for await (const chunk of stream.fullStream) {
+            if (res.writableEnded || res.destroyed) {
+              console.log('[stream] Response ended, stopping stream');
+              break;
+            }
+            
+            // Log chunk structure for debugging
+            const chunkType = chunk?.type || 'unknown';
+            const chunkKeys = chunk ? Object.keys(chunk) : [];
+            console.log(`[stream] FullStream chunk type: ${chunkType}, keys: ${chunkKeys.join(', ')}`);
+            
+            // Handle different chunk types
+            if (chunkType === 'tool-call' || chunk?.toolCallId) {
+              toolCallsCount++;
+              const toolName = chunk.toolName || chunk.toolCallId || chunk?.name || 'unknown';
+              console.log(`[stream] Tool call ${toolCallsCount}: ${toolName}`);
+            } else if (chunkType === 'tool-result' || chunk?.toolResult) {
+              const toolName = chunk.toolName || chunk.toolCallId || chunk?.name || 'unknown';
+              console.log(`[stream] Tool result: ${toolName}`);
+            } else {
+              // Try multiple ways to extract text content
+              let content = '';
+              
+              // Method 1: Direct text properties
+              if (typeof chunk === 'string') {
+                content = chunk;
+              } else if (chunk?.content) {
+                content = typeof chunk.content === 'string' ? chunk.content : '';
+              } else if (chunk?.text) {
+                content = typeof chunk.text === 'string' ? chunk.text : '';
+              } else if (chunk?.delta) {
+                content = typeof chunk.delta === 'string' ? chunk.delta : '';
+              } else if (chunk?.textDelta) {
+                content = typeof chunk.textDelta === 'string' ? chunk.textDelta : '';
+              } else if (chunk?.payload?.text) {
+                content = typeof chunk.payload.text === 'string' ? chunk.payload.text : '';
+              } else if (chunk?.payload?.content) {
+                content = typeof chunk.payload.content === 'string' ? chunk.payload.content : '';
+              }
+              
+              // Method 2: Check for text-delta or text type
+              if (!content && (chunkType === 'text-delta' || chunkType === 'text')) {
+                content = chunk?.content || chunk?.text || chunk?.delta || '';
+              }
+              
+              if (content && typeof content === 'string' && content.trim().length > 0) {
+                chunkCount++;
+                totalChars += content.length;
+                hasWritten = true;
+                if (content.includes('chart') || content.includes('.png') || content.includes('files/charts')) {
+                  console.log(`[stream] ✓ Chunk ${chunkCount} contains chart reference:`, content.substring(0, 200));
+                }
+                try {
+                  res.write(content);
+                  if (typeof (res as any).flush === 'function') {
+                    (res as any).flush();
+                  }
+                } catch (writeError) {
+                  console.error('[stream] Write error:', writeError);
+                  break;
+                }
+              } else if (chunkType !== 'tool-call' && chunkType !== 'tool-result') {
+                // Log unknown chunk structure for debugging
+                console.log(`[stream] Unknown chunk structure (type: ${chunkType}):`, JSON.stringify(chunk, null, 2).substring(0, 300));
+              }
+            }
+          }
+          
+          console.log(`[stream] FullStream completed: ${chunkCount} chunks, ${totalChars} chars, ${toolCallsCount} tool calls, hasWritten: ${hasWritten}`);
+          
+          if (!res.writableEnded && !res.destroyed) {
+            if (!hasWritten) {
+              res.write('\n[Response completed]');
+            }
+            res.end();
+          }
+        } catch (streamError) {
+          console.error('[stream] FullStream error:', streamError);
+          if (!res.writableEnded && !res.destroyed) {
+            try {
+              res.write(`\n[Error: ${streamError instanceof Error ? streamError.message : String(streamError)}]`);
+            } catch (writeError) {
+              console.error('[stream] Failed to write error:', writeError);
+            }
+            res.end();
+          }
+        }
+      } else if (stream && stream.textStream) {
+        try {
+          let chunkCount = 0;
+          let hasWritten = false;
+          let toolCallsCount = 0;
           
           // Handle client disconnect
           req.on('close', () => {
             console.log('[stream] Client disconnected');
           });
           
+          // Start consuming tool streams in background (don't block text stream)
+          const toolStreamPromises: Promise<void>[] = [];
+          
+          // Handle tool calls stream if present
+          if (stream.toolCallsStream) {
+            console.log('[stream] Stream has toolCallsStream, consuming in background');
+            toolStreamPromises.push(
+              (async () => {
+                try {
+                  for await (const toolCall of stream.toolCallsStream) {
+                    toolCallsCount++;
+                    const toolName = toolCall?.toolName || toolCall?.toolCallId || 'unknown';
+                    console.log(`[stream] Tool call ${toolCallsCount}: ${toolName}`, JSON.stringify(toolCall, null, 2).substring(0, 500));
+                  }
+                } catch (toolCallError) {
+                  console.warn('[stream] Error reading tool calls:', toolCallError);
+                }
+              })()
+            );
+          }
+          
+          // Handle tool results stream if present
+          if (stream.toolResultsStream) {
+            console.log('[stream] Stream has toolResultsStream, consuming in background');
+            toolStreamPromises.push(
+              (async () => {
+                try {
+                  for await (const toolResult of stream.toolResultsStream) {
+                    const toolName = toolResult?.toolName || toolResult?.toolCallId || 'unknown';
+                    console.log(`[stream] Tool result received for: ${toolName}`, JSON.stringify(toolResult, null, 2).substring(0, 500));
+                  }
+                } catch (toolResultError) {
+                  console.warn('[stream] Error reading tool results:', toolResultError);
+                }
+              })()
+            );
+          }
+          
+          // CRITICAL: Wait for tool calls to complete BEFORE consuming textStream
+          // This ensures tool calls execute and their results are included in the response
+          if (toolStreamPromises.length > 0) {
+            console.log(`[stream] Waiting for ${toolStreamPromises.length} tool stream(s) to complete before text stream...`);
+            await Promise.all(toolStreamPromises);
+            console.log(`[stream] Tool streams completed, now consuming text stream`);
+          }
+          
+          // Consume text stream (main stream that writes to response)
+          // This will include the agent's response AFTER tool calls complete
           let totalChars = 0;
           for await (const chunk of stream.textStream) {
             // Check if response is still writable
@@ -325,7 +662,7 @@ if (!isPlaygroundMode) {
             }
           }
           
-          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks, ${totalChars} total chars, hasWritten: ${hasWritten}`);
+          console.log(`[stream] Stream completed successfully with ${chunkCount} chunks, ${totalChars} total chars, ${toolCallsCount} tool calls, hasWritten: ${hasWritten}`);
           
           // Only end if we haven't already
           if (!res.writableEnded && !res.destroyed) {

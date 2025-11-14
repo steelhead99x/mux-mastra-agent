@@ -1511,14 +1511,17 @@ export const muxChartGenerationTool = createTool({
             const chartUrl = await getChartUrl(chartPath);
             const fileName = basename(chartPath);
             
-            console.log(`[mux-chart-generation] Generated ${chartType} chart: ${chartUrl}`);
+            console.log(`[mux-chart-generation] ✓ Generated ${chartType} chart: ${chartUrl}`);
+            console.log(`[mux-chart-generation] Chart data points: ${data.length}, Title: "${title}"`);
             
+            // Return chart URL in a format that's easy for the agent to use
             return {
                 success: true,
                 chartUrl,
                 chartPath: fileName, // Only return filename, not full path
                 chartType,
-                title
+                title,
+                message: `Chart generated successfully. Use this URL in markdown format: ![${title}](${chartUrl})`
             };
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
