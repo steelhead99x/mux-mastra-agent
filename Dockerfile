@@ -160,10 +160,7 @@ ENV NODE_ENV=production \
     HOME=/app \
     SKIP_SASS_BINARY_DOWNLOAD_FOR_CI=true \
     SKIP_NODE_SASS_TESTS=true \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    npm_config_build_from_source=false \
-    npm_config_cache_min=86400 \
-    npm_config_prefer_offline=true
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 WORKDIR /app/backend
 
