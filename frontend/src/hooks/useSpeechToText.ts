@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
+import { getApiUrl } from '../utils/apiUrl'
 
 // Add type declarations for Web Speech API
 declare global {
@@ -153,7 +154,10 @@ export function useSpeechToText(options: SpeechToTextOptions = {}) {
       const formData = new FormData()
       formData.append('audio', audioBlob, 'recording.webm')
 
-      const response = await fetch('/api/speech-to-text', {
+      // Use api subdomain for API calls in production
+      const apiUrl = getApiUrl('/api/speech-to-text')
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         body: formData
       })

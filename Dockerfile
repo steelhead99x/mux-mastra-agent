@@ -91,7 +91,7 @@ WORKDIR /app
 RUN addgroup -S nodejs -g 1001 && \
     adduser -S weatheruser -u 1001 -G nodejs -h /app -s /bin/sh
 
-# Runtime libs for canvas/ffmpeg
+# Runtime libs for canvas/ffmpeg and nginx
 RUN apk add --no-cache \
     ffmpeg \
     cairo \
@@ -99,7 +99,9 @@ RUN apk add --no-cache \
     jpeg \
     giflib \
     pixman \
-    freetype
+    freetype \
+    nginx \
+    openssl
 
 # Copy built artifacts
 COPY --from=build-backend --chown=weatheruser:nodejs /app/backend/dist ./backend/dist
@@ -132,12 +134,20 @@ COPY --chown=weatheruser:nodejs backend/package*.json ./backend/
 COPY --chown=weatheruser:nodejs backend/start.sh ./backend/start.sh
 RUN chmod +x /app/backend/start.sh
 
-USER weatheruser
+# Copy nginx configuration and scripts
+COPY --chown=root:root nginx.conf /etc/nginx/nginx.conf
+COPY --chown=root:root scripts/generate-ssl-cert.sh /app/scripts/generate-ssl-cert.sh
+COPY --chown=root:root scripts/start-with-nginx.sh /app/scripts/start-with-nginx.sh
+RUN chmod +x /app/scripts/generate-ssl-cert.sh && \
+    chmod +x /app/scripts/start-with-nginx.sh && \
+    mkdir -p /etc/nginx/ssl /var/log/nginx /var/cache/nginx && \
+    chown -R weatheruser:nodejs /app/backend || true
 
-# Ensure permissions
-RUN chown -R weatheruser:nodejs /app/backend || true
+# Note: Container will run as root to allow nginx to start
+# The startup script will run backend as weatheruser, nginx as root
+# USER directive removed - container runs as root for nginx
 
-EXPOSE 3001
+EXPOSE 80 3003
 
 # Environment
 ENV NODE_ENV=production \
@@ -157,4 +167,5 @@ WORKDIR /app/backend
 # Quick verification
 RUN echo "NODE_ENV is set to: $NODE_ENV"
 
-CMD ["./start.sh"]
+# Use the nginx startup script which runs both services
+CMD ["/app/scripts/start-with-nginx.sh"]

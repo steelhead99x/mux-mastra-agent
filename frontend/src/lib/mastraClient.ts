@@ -10,8 +10,18 @@ declare module '@mastra/client-js' {
 function sanitizeHost(raw: string | undefined): { hostname: string; protocol?: string } {
   try {
     if (!raw) {
-      // In production, use the same domain (no subdomain needed)
-      return { hostname: window.location.hostname || 'localhost:3001' }
+      // In production, use api subdomain if available, otherwise same domain
+      const hostname = window.location.hostname || 'localhost'
+      const port = window.location.port || '3003'
+      // For IP addresses, we can't use subdomains, so use same origin
+      // For domain names, use api subdomain
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+        // IP address - use same origin with /api path
+        return { hostname: `${hostname}:${port}` }
+      } else {
+        // Domain name - use api subdomain
+        return { hostname: `api.${hostname}:${port}` }
+      }
     }
     let v = String(raw).trim()
 
@@ -91,10 +101,21 @@ if (rawHost) {
   finalBaseUrl = buildBaseUrl(hostname, protocol)
   console.log('[Mastra] Using configured host:', rawHost, '→', finalBaseUrl)
 } else if (isProduction) {
-  // In production without explicit config, use the same origin as the frontend
-  // This assumes backend is served on the same domain
-  finalBaseUrl = window.location.origin + '/'
-  console.log('[Mastra] Production mode - using same origin:', finalBaseUrl)
+  // In production without explicit config, use api subdomain
+  const hostname = window.location.hostname || 'localhost'
+  const port = window.location.port || '3003'
+  const protocol = window.location.protocol || 'https:'
+  
+  // For IP addresses, we can't use subdomains, so use same origin with /api path
+  // For domain names, use api subdomain
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    // IP address - use same origin, API calls will use /api path
+    finalBaseUrl = `${protocol}//${hostname}:${port}/`
+  } else {
+    // Domain name - use api subdomain
+    finalBaseUrl = `${protocol}//api.${hostname}${port ? ':' + port : ''}/`
+  }
+  console.log('[Mastra] Production mode - using api subdomain:', finalBaseUrl)
 } else {
   // In development without explicit config, use same-origin to leverage Vite proxy
   finalBaseUrl = window.location.origin + '/'
