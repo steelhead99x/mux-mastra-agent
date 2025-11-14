@@ -246,7 +246,29 @@ export async function generateTemperatureChartFromForecast(
 export async function getChartUrl(chartPath: string): Promise<string> {
     const fileName = basename(chartPath);
     
-    // Priority 1: In development, use frontend origin (Vite proxy handles /files)
+    // Priority 1: If CHART_URL is explicitly set, use it (highest priority for maintainability)
+    if (process.env.CHART_URL) {
+        let chartUrl = process.env.CHART_URL.replace(/\/$/, ''); // Remove trailing slash
+        
+        // If CHART_URL doesn't end with the filename, append it
+        // This allows CHART_URL to be either:
+        // - A base URL: "https://example.com/files/charts" -> append filename
+        // - A full URL pattern: "https://example.com/files/charts/{filename}" -> replace {filename} or append
+        if (!chartUrl.endsWith(fileName)) {
+            // Check if it's a pattern with {filename} placeholder
+            if (chartUrl.includes('{filename}')) {
+                chartUrl = chartUrl.replace('{filename}', fileName);
+            } else {
+                // Otherwise, append the filename with a slash
+                chartUrl = `${chartUrl}/${fileName}`;
+            }
+        }
+        
+        console.log(`[getChartUrl] Using CHART_URL: ${chartUrl}`);
+        return chartUrl;
+    }
+    
+    // Priority 2: In development, use frontend origin (Vite proxy handles /files)
     // Backend can't access VITE_ prefixed vars, so use FRONTEND_ORIGIN or default
     if (process.env.NODE_ENV !== 'production') {
         // In development, charts should be accessible via frontend (Vite proxy)
