@@ -43,7 +43,8 @@
     "node": ">=24.0.0"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "loupe": "3.2.1"
   },
   "dependencies": {
     "@mastra/fastembed": "^0.10.5",
