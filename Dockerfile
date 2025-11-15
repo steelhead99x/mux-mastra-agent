@@ -59,9 +59,9 @@ COPY .npmrc ./
 # Skip dev env post-build hooks by forcing production during build
 ENV NODE_ENV=production
 
-# Install all deps (incl dev) without running install scripts
-RUN npm ci --workspaces --include=dev --ignore-scripts && \
-    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend --ignore-scripts
+# Install all deps (incl dev) - scripts needed for proper dependency linking
+RUN npm ci --workspaces --include=dev && \
+    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
 
 # Build shared package
 FROM builder-deps AS build-shared
