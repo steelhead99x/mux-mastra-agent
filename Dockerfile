@@ -62,7 +62,8 @@ ENV NODE_ENV=production
 # Install all deps (incl dev) - scripts needed for proper dependency linking
 # Using npm install instead of npm ci for better workspace dependency hoisting
 RUN npm install --workspaces --include=dev && \
-    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
+    npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend && \
+    npm install loupe@3.2.1 --include=dev
 
 # Build shared package
 FROM builder-deps AS build-shared
@@ -82,7 +83,9 @@ FROM builder-deps AS build-frontend
 WORKDIR /app
 COPY frontend ./frontend
 COPY shared ./shared
-RUN npm --workspace frontend run build
+# Ensure loupe is installed at root level for workspace hoisting (vitest dependency)
+RUN npm install loupe@3.2.1 --include=dev && \
+    npm --workspace frontend run build
 
 # Final runtime image
 FROM node:24-alpine AS runner
