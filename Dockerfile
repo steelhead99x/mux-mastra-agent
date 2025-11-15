@@ -60,7 +60,8 @@ COPY .npmrc ./
 ENV NODE_ENV=production
 
 # Install all deps (incl dev) - scripts needed for proper dependency linking
-RUN npm ci --workspaces --include=dev && \
+# Using npm install instead of npm ci for better workspace dependency hoisting
+RUN npm install --workspaces --include=dev && \
     npm install @modelcontextprotocol/sdk@^1.19.1 --workspace=backend
 
 # Build shared package
